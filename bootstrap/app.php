@@ -6,7 +6,6 @@ use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -46,7 +45,9 @@ return Application::configure(basePath: dirname(__DIR__))
             SecurityHeaders::class,
             HandleAppearance::class,
             HandleInertiaRequests::class,
-            AddLinkHeadersForPreloadedAssets::class,
+            // Not AddLinkHeadersForPreloadedAssets: its Link header repeats every preload tag the page
+            // already has and made the response header larger than nginx's default FastCGI buffer
+            // once the security headers and encrypted cookies were added (a 502 from nginx).
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

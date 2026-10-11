@@ -371,6 +371,10 @@ add rather than an automatic change to files it does not own:
              include /etc/nginx/fastcgi_params;
              fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
              fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+             # The response headers (security policy, encrypted session cookies) can exceed
+             # nginx's default FastCGI header buffer, which is a 502 for the visitor.
+             fastcgi_buffer_size 16k;
+             fastcgi_buffers 8 16k;
          }
 
          location ~ /\.(?!well-known).* {
