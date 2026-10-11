@@ -167,3 +167,33 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 		}
 	}
 }
+
+func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
+	list := filepath.Join(t.TempDir(), "applier-capabilities")
+	if err := os.WriteFile(list, []byte("# comment\n web.nginx.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !appliedByApplierFrom(list, dnsBind9Capability) {
+		t.Errorf("a hosted and listed capability must go to the applier")
+	}
+
+	// Listed, but this build does not host it in the applier.
+	if appliedByApplierFrom(list, webNginxCapability) {
+		t.Errorf("a capability the applier does not host must stay with the daemon, even if listed")
+	}
+
+	// Hosted, but not listed.
+	other := filepath.Join(t.TempDir(), "applier-capabilities")
+	if err := os.WriteFile(other, []byte("web.nginx.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if appliedByApplierFrom(other, dnsBind9Capability) {
+		t.Errorf("a capability that is not listed must stay with the daemon")
+	}
+
+	if appliedByApplierFrom(filepath.Join(t.TempDir(), "missing"), dnsBind9Capability) {
+		t.Errorf("no list means nothing goes to the applier")
+	}
+}
