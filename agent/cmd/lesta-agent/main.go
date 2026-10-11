@@ -148,6 +148,17 @@ func main() {
 		os.Exit(identity.EnsureChrootTree(identityProductionConfig(), os.Args[2]))
 	}
 
+	// "identity-useradd" and "identity-userdel" are the only way the unprivileged daemon creates or
+	// removes an account's system user. They accept a per-account name only, so the daemon cannot
+	// be made to run useradd or userdel with other options or on other users.
+	if len(os.Args) >= 3 && os.Args[1] == "identity-useradd" {
+		os.Exit(identity.SystemUserAdd(identityProductionConfig(), os.Args[2]))
+	}
+
+	if len(os.Args) >= 3 && os.Args[1] == "identity-userdel" {
+		os.Exit(identity.SystemUserDel(identityProductionConfig(), os.Args[2]))
+	}
+
 	// "identity-write-authorized-keys" mirrors "identity-ensure-chroot-tree"
 	// exactly, for a second real root-only action system.account-identity.v1
 	// needs: sshd's own secure_path() safety check requires the centralized
@@ -601,14 +612,9 @@ func mariadbProductionConfig() mariadb.Config {
 		MariaDBBinary:     "mariadb",
 		DefaultsExtraFile: "/etc/lesta/mariadb-tenant-admin.cnf",
 		StateRoot:         "/var/lib/lesta/mariadb/tenant-agent-state",
-		// The real lesta-agent-daemon systemd unit runs as the
-		// unprivileged lesta-agent user, confirmed directly deploying
-		// to a real node: DefaultsExtraFile above is deliberately
-		// root-owned 0600, so lesta-agent cannot open it directly.
-		// sudo routes the mariadb client through this same binary,
-		// scoped by .install/services/mariadb/install.sh's own
-		// sudoers rule.
-		SudoBinary: "sudo",
+		// No SudoBinary: the defaults file is root:lesta 0640, so the daemon
+		// runs the client as itself. The client can run shell commands, so it
+		// must never be run as root.
 	}
 }
 

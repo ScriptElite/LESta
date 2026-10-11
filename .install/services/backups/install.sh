@@ -95,6 +95,9 @@ BACKUPS_ARTIFACTS_ROOT="/var/lib/lesta/backups"
 # agent/internal/capability/backup/dump.go's own mariadbDumpBinary()).
 MARIADB_DUMP_BINARY_PATH="/usr/bin/mariadb-dump"
 MARIADB_CLIENT_BINARY_PATH="/usr/bin/mariadb"
+# The two database sockets agent/cmd/lesta-agent/main.go's DatabaseDumpSockets names; keep in step.
+BACKUP_TENANT_SOCKET="/run/mysqld/mysqld.tenant.sock"
+BACKUP_CONTROL_PLANE_SOCKET="/run/mysqld/mysqld.sock"
 SUDOERS_LESTA_BACKUPS_PATH="/etc/sudoers.d/lesta-backups"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
@@ -377,14 +380,15 @@ install_backups() {
     # The real lesta-agent-daemon systemd unit runs as the unprivileged
     # lesta-agent user, so it never passes that check by file permissions
     # alone; sudo lets the client process itself run as real root instead.
-    # Wildcarding args is safe here for the same reason mariadb/install.sh's
-    # own rule already established: neither mariadb-dump nor mariadb has a
-    # flag that writes to an arbitrary path outside the real dump/restore
-    # shapes dump.go/restore.go actually build, and both are always invoked
-    # with a fixed, hardcoded argv from this project's own Go code, never
-    # from payload content.
+    # Pinned to the exact argv dump.go and restore.go build, for the two
+    # known database sockets, with no trailing wildcard. A wildcard here would
+    # let the daemon write a dump to any path (mariadb-dump --result-file) or
+    # pass any option. The restore client reads its SQL on stdin and the SQL
+    # client can run shell commands (\\!, pager), so a daemon that is
+    # compromised can still reach root through the restore; that needs the
+    # restore to stop using root's unix_socket login.
     cat > "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${MARIADB_DUMP_BINARY_PATH} *, ${MARIADB_CLIENT_BINARY_PATH} *, ${AGENT_BINARY_DEST} backup-account-apply, ${AGENT_BINARY_DEST} backup-archive-mail-state, ${AGENT_BINARY_DEST} backup-restore-mail-files
+lesta-agent ALL=(root) NOPASSWD: ${MARIADB_DUMP_BINARY_PATH} --socket\=${BACKUP_TENANT_SOCKET} -u root --all-databases --single-transaction --quick, ${MARIADB_DUMP_BINARY_PATH} --socket\=${BACKUP_CONTROL_PLANE_SOCKET} -u root --all-databases --single-transaction --quick, ${MARIADB_CLIENT_BINARY_PATH} --socket\=${BACKUP_TENANT_SOCKET} -u root, ${MARIADB_CLIENT_BINARY_PATH} --socket\=${BACKUP_CONTROL_PLANE_SOCKET} -u root, ${AGENT_BINARY_DEST} backup-account-apply, ${AGENT_BINARY_DEST} backup-archive-mail-state, ${AGENT_BINARY_DEST} backup-restore-mail-files
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"

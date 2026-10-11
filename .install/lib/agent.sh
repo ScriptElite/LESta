@@ -70,7 +70,9 @@ agent_install_binary() {
     # traverse into it to exec AGENT_BINARY_DEST -- a 0750 directory would
     # make the binary's own 0755 mode moot, since a non-`lesta`-group
     # identity could never reach it in the first place.
-    install -d -m 0755 -o lesta-agent -g lesta /var/lib/lesta/agent/bin || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/bin "failed to create /var/lib/lesta/agent/bin"
+    # Owned by root, not by the unprivileged lesta-agent user: sudo runs this binary as root (the
+    # backup, cron, identity and files helper modes), so whoever can replace it owns the node.
+    install -d -m 0755 -o root -g root /var/lib/lesta/agent/bin || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/bin "failed to create /var/lib/lesta/agent/bin"
     add_change node.health.v1 ensured /var/lib/lesta/agent "agent directories present with correct ownership"
 
     expected_sha256=$(manifest_artifact_sha256 "${node_health_manifest}" "${AGENT_ARTIFACT_NAME}")
@@ -80,6 +82,10 @@ agent_install_binary() {
 
     if [ -f "${AGENT_BINARY_DEST}" ]; then
         dest_sha256=$(compute_sha256 "${AGENT_BINARY_DEST}")
+
+        # Installs from before the binary became root-owned still have it owned by lesta-agent.
+        chown root:root "${AGENT_BINARY_DEST}" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${AGENT_BINARY_DEST}" "failed to make the agent binary root-owned"
+        [ ! -f "${AGENT_BINARY_DEST}.previous" ] || chown root:root "${AGENT_BINARY_DEST}.previous" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${AGENT_BINARY_DEST}.previous" "failed to make the previous agent binary root-owned"
 
         if [ "${dest_sha256}" = "${expected_sha256}" ]; then
             log_info "agent_install_binary: ${AGENT_BINARY_DEST} already at the target generation (sha256 ${expected_sha256}); no-op"
@@ -94,7 +100,7 @@ agent_install_binary() {
         cp "${AGENT_BINARY_DEST}" "${AGENT_BINARY_DEST}.previous.tmp" \
             || fail_step "${EXIT_MUTATION_FAILURE}" backup_failed "${AGENT_BINARY_DEST}.previous" "failed to copy the currently-installed agent binary (sha256 ${dest_sha256}) to ${AGENT_BINARY_DEST}.previous.tmp before installing a new generation"
         chmod 0755 "${AGENT_BINARY_DEST}.previous.tmp"
-        chown lesta-agent:lesta "${AGENT_BINARY_DEST}.previous.tmp" 2>/dev/null || true
+        chown root:root "${AGENT_BINARY_DEST}.previous.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${AGENT_BINARY_DEST}.previous" "failed to make the previous agent binary root-owned"
         mv -f "${AGENT_BINARY_DEST}.previous.tmp" "${AGENT_BINARY_DEST}.previous" \
             || fail_step "${EXIT_MUTATION_FAILURE}" backup_failed "${AGENT_BINARY_DEST}.previous" "failed to rename ${AGENT_BINARY_DEST}.previous.tmp into place"
         add_change node.health.v1 backed_up "${AGENT_BINARY_DEST}.previous" "previous agent binary generation (sha256 ${dest_sha256}) backed up before installing the new generation (sha256 ${expected_sha256})"
@@ -109,9 +115,9 @@ agent_install_binary() {
 
     cp "${agent_binary_src}" "${AGENT_BINARY_DEST}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" copy_failed "${AGENT_BINARY_DEST}" "failed to copy agent binary into place"
     chmod 0755 "${AGENT_BINARY_DEST}.tmp"
-    chown lesta-agent:lesta "${AGENT_BINARY_DEST}.tmp" 2>/dev/null || true
+    chown root:root "${AGENT_BINARY_DEST}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${AGENT_BINARY_DEST}" "failed to make the agent binary root-owned"
     mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}"
-    add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${agent_binary_src}, sha256 verified against manifest, mode 0755 lesta-agent:lesta"
+    add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${agent_binary_src}, sha256 verified against manifest, mode 0755 root:root"
 }
 
 # agent_rollback_binary
@@ -137,7 +143,10 @@ agent_rollback_binary() {
         return 2
     }
     chmod 0755 "${AGENT_BINARY_DEST}.tmp"
-    chown lesta-agent:lesta "${AGENT_BINARY_DEST}.tmp" 2>/dev/null || true
+    chown root:root "${AGENT_BINARY_DEST}.tmp" || {
+        log_error "agent_rollback_binary: failed to make ${AGENT_BINARY_DEST}.tmp root-owned"
+        return 2
+    }
     mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}" || {
         log_error "agent_rollback_binary: failed to rename ${AGENT_BINARY_DEST}.tmp into place over ${AGENT_BINARY_DEST}"
         return 2

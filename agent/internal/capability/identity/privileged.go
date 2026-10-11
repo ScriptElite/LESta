@@ -20,6 +20,52 @@ import (
 // re-checks already established.
 var cliUsernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
+// accountUsernamePattern is the only kind of name the root-only useradd/userdel modes accept: the
+// per-account name the control plane derives ("lesta-t" and the account id). Unlike
+// cliUsernamePattern it cannot name root, the daemon's own users or any other existing account, so
+// a daemon that is asked, or tricked, into deleting "root" cannot do it.
+var accountUsernamePattern = regexp.MustCompile(`^lesta-t[0-9]{1,12}$`)
+
+// SystemUserAdd is the "identity-useradd" CLI mode: it creates one per-account system user with
+// the fixed flags createSystemUser has always used. Run as root through the sudoers rule
+// agent-daemon/install.sh writes, which allows exactly this subcommand and not useradd itself.
+func SystemUserAdd(cfg Config, username string) int {
+	if !accountUsernamePattern.MatchString(username) {
+		fmt.Fprintf(os.Stderr, "identity-useradd: %q is not a per-account username\n", username)
+
+		return 1
+	}
+
+	cmd := exec.Command(cfg.useraddBinary(), systemUserArgs(username)...) //nolint:gosec // fixed binary, fixed flags, validated username, no shell
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "identity-useradd: %v: %s\n", err, bytes.TrimSpace(out))
+
+		return 1
+	}
+
+	return 0
+}
+
+// SystemUserDel is the "identity-userdel" CLI mode, the counterpart of SystemUserAdd.
+func SystemUserDel(cfg Config, username string) int {
+	if !accountUsernamePattern.MatchString(username) {
+		fmt.Fprintf(os.Stderr, "identity-userdel: %q is not a per-account username\n", username)
+
+		return 1
+	}
+
+	cmd := exec.Command(cfg.userdelBinary(), username) //nolint:gosec // fixed binary, validated username, no shell
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "identity-userdel: %v: %s\n", err, bytes.TrimSpace(out))
+
+		return 1
+	}
+
+	return 0
+}
+
 // ensureChrootTreePrivileged runs ensureChrootTree directly (cfg.SudoBinary
 // empty) or, in production, via this same binary's own
 // "identity-ensure-chroot-tree" CLI mode under sudo: ensureChrootTree's own

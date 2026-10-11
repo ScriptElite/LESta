@@ -200,6 +200,29 @@ set_env_value() {
     mv "${ENV_FILE}.tmp" "${ENV_FILE}" || fail_mutation "failed to write ${ENV_FILE}"
 }
 
+# The .env holds APP_KEY (which decrypts every encrypted column: backup keys, storage keys, tenant
+# database passwords) and the control-plane database password. Rewriting it with mv resets its mode
+# to the umask, so this runs after every step that rewrites it. The web server's group may read it;
+# nobody else, in particular no tenant account on a node that shares this host, may.
+secure_env_file() {
+    [ -f "${ENV_FILE}" ] || return 0
+
+    chmod 0640 "${ENV_FILE}" || fail_mutation "failed to restrict ${ENV_FILE} to mode 0640"
+
+    if getent group www-data >/dev/null 2>&1; then
+        chgrp www-data "${ENV_FILE}" || printf 'install-cp.sh: warning: could not give group www-data read access to %s; the web server may not be able to read it\n' "${ENV_FILE}" >&2
+    fi
+
+    # storage/ holds logs and staged backup files; the web server and queue worker run as www-data.
+    if [ -d storage ]; then
+        if getent group www-data >/dev/null 2>&1; then
+            chgrp -R www-data storage 2>/dev/null || true
+        fi
+
+        chmod -R o-rwx storage || fail_mutation "failed to restrict storage/ to its owner and group"
+    fi
+}
+
 configure_env_file() {
     if [ ! -f "${ENV_FILE}" ]; then
         [ -f ".env.example" ] || fail_mutation ".env.example not found -- cannot create ${ENV_FILE}"
@@ -394,8 +417,10 @@ main() {
     parse_args "$@"
     preflight
     configure_env_file
+    secure_env_file
     install_dependencies
     ensure_app_key
+    secure_env_file
     run_migrations
     print_next_steps
 }

@@ -376,7 +376,7 @@ emit_dry_run_result_and_exit() {
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway tenant database against the real, just-installed tenant MariaDB instance"
     add_change database.control-plane.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); the default mariadb.service instance would be stopped, its stock ${CONTROL_PLANE_STOCK_DATADIR} content relocated to ${CONTROL_PLANE_DATADIR}, ${CONTROL_PLANE_CONF_FRAGMENT} written, and mariadb.service re-enabled and started; a dedicated least-privilege application account and ${CONTROL_PLANE_APP_CREDENTIALS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
-    add_change database.tenant.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} would be created; ${SUDOERS_LESTA_MARIADB_PATH} would be rendered and validated, scoping lesta-agent to run ${MARIADB_CLIENT_BINARY_PATH} as root, nothing else; health would be probed with a real SELECT 1 round-trip"
+    add_change database.tenant.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} (mode 0640 root:lesta) would be created; an obsolete ${SUDOERS_LESTA_MARIADB_PATH} would be removed; health would be probed with a real SELECT 1 round-trip"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -1133,37 +1133,24 @@ ADMINSQL
 user=${TENANT_ADMIN_USER}
 password=${admin_password}
 DEFAULTS
-    chmod 0600 "${TENANT_ADMIN_DEFAULTS_FILE}.tmp"
-    chown root:root "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" 2>/dev/null || true
+    # Readable by the agent's own group so the daemon runs the mariadb client as itself. This is
+    # a database account that only speaks SQL over TCP; it used to be root-only, which forced a
+    # sudo rule for the whole mariadb client, and the client can run shell commands (\\!, pager).
+    chmod 0640 "${TENANT_ADMIN_DEFAULTS_FILE}.tmp"
+    chown root:lesta "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${TENANT_ADMIN_DEFAULTS_FILE}" "failed to give group lesta read access to ${TENANT_ADMIN_DEFAULTS_FILE}"
     mv -f "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" "${TENANT_ADMIN_DEFAULTS_FILE}"
-    add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0600 root:root, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
+    add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0640 root:lesta, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
 
-    # --- sudoers: the real daemon's own mariadb client needs root too -------
+    # --- sudoers: no longer needed ------------------------------------------
     #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, confirmed directly deploying to a real node:
-    # TENANT_ADMIN_DEFAULTS_FILE above is deliberately root-owned 0600, so
-    # lesta-agent cannot open it directly. sudo lets the mariadb client
-    # process itself run as root, able to read the file -- the actual SQL
-    # authentication still happens entirely over the TCP connection's own
-    # credential handshake, unaffected by which OS user opened the file.
-    # This rule scopes lesta-agent to running the real mariadb client as
-    # root, nothing else -- safe to wildcard its own arguments here, same
-    # reasoning as nginx's/bind9's own sudoers rules.
-    cat > "${SUDOERS_LESTA_MARIADB_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${MARIADB_CLIENT_BINARY_PATH} *
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_MARIADB_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_MARIADB_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_MARIADB_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_MARIADB_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_MARIADB_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_MARIADB_PATH}; the candidate file was removed, the real one was never touched"
+    # An earlier version let lesta-agent run the whole mariadb client as root with any arguments,
+    # only to read the root-only defaults file above. The client can execute shell commands, so
+    # that rule made the daemon root. The daemon now reads the defaults file itself (group lesta)
+    # and runs the client as itself; an old rule is removed here.
+    if [ -e "${SUDOERS_LESTA_MARIADB_PATH}" ]; then
+        rm -f "${SUDOERS_LESTA_MARIADB_PATH}" || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_MARIADB_PATH}" "failed to remove the obsolete ${SUDOERS_LESTA_MARIADB_PATH}"
+        add_change database.tenant.v1 removed "${SUDOERS_LESTA_MARIADB_PATH}" "obsolete sudoers rule removed: lesta-agent no longer runs the mariadb client as root"
     fi
-
-    mv "${SUDOERS_LESTA_MARIADB_PATH}.tmp" "${SUDOERS_LESTA_MARIADB_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_MARIADB_PATH}" "failed to activate ${SUDOERS_LESTA_MARIADB_PATH}"
-    add_change database.tenant.v1 installed "${SUDOERS_LESTA_MARIADB_PATH}" "sudoers rule written and validated: lesta-agent may run ${MARIADB_CLIENT_BINARY_PATH} as root, nothing else"
 
     checkpoint_write install_mariadb_tenant "${MANIFEST_DIGEST}"
     log_info "install_mariadb_tenant complete"

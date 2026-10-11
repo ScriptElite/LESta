@@ -852,17 +852,20 @@ LOGROTATE
     # correctly root-protected key (any coexisting HTTPS vhost's own, not
     # just one of this capability's own fragments) refuses to open for
     # anything but root. This rule scopes lesta-agent to running exactly
-    # the real nginx binary as root, nothing else -- nginx itself has no
-    # CLI flag that writes to an attacker-chosen path, so wildcarding its
-    # own arguments here is safe in a way a wildcarded arbitrary-command
-    # rule would not be. It also grants this same binary's own
+    # exactly the two nginx invocations the daemon makes (a reload of the
+    # live config, and a test of a synthetic config in a scratch directory)
+    # as root. Not a free wildcard: nginx can run arbitrary global directives
+    # with -g and load modules, so only these argument shapes are allowed.
+    # The test still takes any config path, so a compromised daemon could
+    # test (and so load) a config it wrote itself; closing that needs the
+    # validation to run unprivileged or the config to be rendered by root. It also grants this same binary's own
     # "nginx-ensure-docroot" CLI mode (docroot.go), the same real-root
     # requirement identity-ensure-chroot-tree already has and for the same
     # reason: creating a PHP-enabled domain's own per-domain docroot
     # directory inside that account's root-owned SFTP chroot tree, owned
     # by the account's own uid/gid, needs real root.
     cat > "${SUDOERS_LESTA_NGINX_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} *, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
+lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} -s reload -c ${NGINX_CONF_PATH}, ${NGINX_BINARY_PATH} -t -c *, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_NGINX_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_NGINX_PATH}.tmp"

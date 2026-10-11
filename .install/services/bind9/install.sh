@@ -744,11 +744,11 @@ PLACEHOLDER
     # authenticate its own reload request, and lesta-agent is deliberately
     # never added to the bind group (that would grant it everything bind
     # can read, not just this one key). This rule scopes lesta-agent to
-    # running the real rndc binary as root, nothing else -- safe to
-    # wildcard its own arguments here, same reasoning as nginx's own
-    # sudoers rule.
+    # running exactly "rndc reload" as root, nothing else: the only rndc
+    # command the daemon issues (bind9/reload.go). A wildcard here would also
+    # allow rndc's -c/-k/-s options and every control command.
     cat > "${SUDOERS_LESTA_BIND9_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${RNDC_BINARY_PATH} *
+lesta-agent ALL=(root) NOPASSWD: ${RNDC_BINARY_PATH} reload
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_BIND9_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_BIND9_PATH}.tmp"

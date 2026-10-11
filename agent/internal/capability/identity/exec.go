@@ -52,7 +52,14 @@ func userExists(ctx context.Context, cfg Config, username string) (bool, error) 
 // every connection. --no-create-home means useradd never touches this path
 // on disk; it only writes the passwd field.
 func createSystemUser(ctx context.Context, cfg Config, username string) error {
-	cmd := cfg.command(ctx, cfg.useraddBinary(), "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--home-dir", "/public", username)
+	var cmd *exec.Cmd
+	if cfg.SudoBinary != "" && cfg.AgentBinaryPath != "" {
+		// In production the daemon never runs useradd itself: it asks this binary's own
+		// "identity-useradd" mode, which only accepts a per-account name (see privileged.go).
+		cmd = exec.CommandContext(ctx, cfg.SudoBinary, cfg.AgentBinaryPath, "identity-useradd", username) //nolint:gosec // fixed binary, argv-validated username, no shell
+	} else {
+		cmd = cfg.command(ctx, cfg.useraddBinary(), systemUserArgs(username)...)
+	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -64,9 +71,19 @@ func createSystemUser(ctx context.Context, cfg Config, username string) error {
 	return nil
 }
 
+// systemUserArgs is the one fixed argument list every useradd this capability runs uses.
+func systemUserArgs(username string) []string {
+	return []string{"--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--home-dir", "/public", username}
+}
+
 // deleteSystemUser execs userdel <username>.
 func deleteSystemUser(ctx context.Context, cfg Config, username string) error {
-	cmd := cfg.command(ctx, cfg.userdelBinary(), username)
+	var cmd *exec.Cmd
+	if cfg.SudoBinary != "" && cfg.AgentBinaryPath != "" {
+		cmd = exec.CommandContext(ctx, cfg.SudoBinary, cfg.AgentBinaryPath, "identity-userdel", username) //nolint:gosec // fixed binary, argv-validated username, no shell
+	} else {
+		cmd = cfg.command(ctx, cfg.userdelBinary(), username)
+	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
