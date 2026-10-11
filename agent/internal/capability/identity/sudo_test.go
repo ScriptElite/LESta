@@ -69,8 +69,8 @@ func TestSudoBinaryRoutesUseraddAndUserdelCorrectly(t *testing.T) {
 }
 
 // newAgentBinaryStub writes a tiny script standing in for the real
-// lesta-agent binary's own "identity-ensure-chroot-tree" and
-// "identity-write-authorized-keys" CLI modes: ensureChrootTreePrivileged/
+// lesta-agent binary's own "identity-useradd", "identity-userdel",
+// "identity-ensure-chroot-tree" and "identity-write-authorized-keys" CLI modes: ensureChrootTreePrivileged/
 // writeAuthorizedKeysPrivileged invoke it as "<sudo stub> <this stub>
 // <subcommand> <username>" (the latter piping content over stdin), so this
 // stub's own job is to perform the same real mkdir/chmod/chown and
@@ -86,6 +86,13 @@ func newAgentBinaryStub(t *testing.T, accountsRoot, authorizedKeysDir string) st
 	path := filepath.Join(t.TempDir(), "agent-stub.sh")
 	script := fmt.Sprintf(`#!/bin/sh
 case "$1" in
+identity-useradd)
+    # The production helper (identity.SystemUserAdd) runs useradd with these fixed flags.
+    useradd --system --no-create-home --shell /usr/sbin/nologin --home-dir /public "$2" || exit 1
+    ;;
+identity-userdel)
+    userdel "$2" || exit 1
+    ;;
 identity-ensure-chroot-tree)
     username="$2"
     root=%q/"$username"
