@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Agent;
 
 use App\Http\Controllers\Controller;
 use App\Models\AccountBackupImport;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -14,8 +15,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class AgentAccountBackupImportController extends Controller
 {
-    public function show(string $token): StreamedResponse
+    public function show(Request $request): StreamedResponse
     {
+        // The token is in the Authorization header, not the address, so it is not written to access logs.
+        $token = (string) $request->bearerToken();
+
         abort_if(preg_match('/^[0-9a-f]{64}$/', $token) !== 1, 404);
 
         $import = AccountBackupImport::query()

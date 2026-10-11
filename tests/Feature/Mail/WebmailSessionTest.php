@@ -48,9 +48,11 @@ test('an owner can prepare a webmail session', function () {
 
     $url = $response->json('url');
 
-    expect($url)->toMatch('#^https://node\.example\.test/\?_lesta_token=[A-Za-z0-9]{64}$#');
+    $token = $response->json('token');
 
-    $token = str_replace('https://node.example.test/?_lesta_token=', '', $url);
+    expect($url)->toBe('https://node.example.test/')
+        ->and($response->json('field'))->toBe('_lesta_token')
+        ->and($token)->toMatch('/^[A-Za-z0-9]{64}$/');
     $record = WebmailAccessToken::where('token_hash', hash('sha256', $token))->sole();
 
     expect($record->mail_account_id)->toBe($mailAccount->id)

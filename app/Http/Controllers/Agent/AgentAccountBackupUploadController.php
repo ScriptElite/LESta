@@ -20,8 +20,11 @@ class AgentAccountBackupUploadController extends Controller
     /** The largest single chunk accepted (the node sends 4 MB). */
     private const int MAX_CHUNK_BYTES = 5 * 1024 * 1024;
 
-    public function store(Request $request, string $token): Response
+    public function store(Request $request): Response
     {
+        // The token is in the Authorization header, not the address, so it is not written to access logs.
+        $token = (string) $request->bearerToken();
+
         if (preg_match('/^[0-9a-f]{64}$/', $token) !== 1) {
             abort(404);
         }

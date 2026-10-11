@@ -49,12 +49,12 @@ function uploadTokenFor(AccountBackup $backup): string
 {
     $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->where('provisionable_type', $backup->getMorphClass())->where('operation', ProvisioningVerb::Observe->value)->latest('id')->firstOrFail();
 
-    return basename($operation->payload['upload_url']);
+    return $operation->payload['upload_token'];
 }
 
 function putChunk(string $token, int $offset, string $body, bool $final = false)
 {
-    return test()->call('PUT', route('agent.account-backup-uploads', ['token' => $token]).'?offset='.$offset.($final ? '&final=1' : ''), [], [], [], ['CONTENT_TYPE' => 'application/octet-stream'], $body);
+    return test()->call('PUT', route('agent.account-backup-uploads').'?offset='.$offset.($final ? '&final=1' : ''), [], [], [], ['CONTENT_TYPE' => 'application/octet-stream', 'HTTP_AUTHORIZATION' => 'Bearer '.$token], $body);
 }
 
 test('an owner prepares a download: the node gets a one-time upload address and the key, only the hash is kept', function () {
@@ -64,13 +64,14 @@ test('an owner prepares a download: the node gets a one-time upload address and 
 
     $download = $backup->downloads()->sole();
     $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->where('operation', ProvisioningVerb::Observe->value)->sole();
-    $token = basename($operation->payload['upload_url']);
+    $token = $operation->payload['upload_token'];
 
     expect($download->status)->toBe('pending')
         ->and($token)->toHaveLength(64)
         ->and($download->token_hash)->toBe(hash('sha256', $token))
         ->and($download->token_hash)->not->toBe($token)
         ->and($operation->payload['upload_url'])->toStartWith('http')
+        ->and($operation->payload['upload_url'])->not->toContain($token)
         ->and($operation->payload['encryption_key'])->toBe($backup->encryption_key)
         ->and($operation->payload['artifact_path'])->toBe($backup->artifact_path)
         ->and($operation->payload['account']['username'])->toBe('lesta-t'.$account->id);

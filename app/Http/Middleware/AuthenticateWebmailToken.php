@@ -9,11 +9,11 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authenticates the one-time {token} route parameter against webmail_access_tokens.token_hash
+ * Authenticates the one-time token, sent as a bearer token in the Authorization header (never in the URL, where it would land in access logs), against webmail_access_tokens.token_hash
  * and stores the resolved MailAccount on the request's attribute bag for
  * WebmailCredentialController to read. Mirrors AuthenticateAdminerToken exactly: 404 (never 401)
  * on any failure, since the token rides a public-shaped URL
- * (https://{mail_hostname}/?_lesta_token=...), and the token is marked used by a single
+ * (https://{mail_hostname}/, which the browser POSTs the token to), and the token is marked used by a single
  * conditional UPDATE whose affected-row count decides the one winner of a concurrent redemption.
  *
  * @param  Closure(Request): (Response)  $next
@@ -22,7 +22,7 @@ class AuthenticateWebmailToken
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $token = (string) $request->route('token');
+        $token = (string) $request->bearerToken();
 
         if ($token === '') {
             abort(404);

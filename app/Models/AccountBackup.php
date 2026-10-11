@@ -159,7 +159,7 @@ class AccountBackup extends Model
      * own storage. The parts the file really holds are read from the file by the node.
      *
      * @param  array{username: string, web_resources: list<string>, mail_domains: list<string>, databases: list<string>}  $scope
-     * @param  array<string, mixed>  $source  source_url, or destination and object_key
+     * @param  array<string, mixed>  $source  source_url and source_token, or destination and object_key
      * @return array<string, mixed>
      */
     public function toImportPayload(array $scope, array $source): array
@@ -191,14 +191,15 @@ class AccountBackup extends Model
      * What the node needs to stream this backup, decrypted, to a one-time upload address.
      *
      * @param  array{username: string, web_resources: list<string>, mail_domains: list<string>, databases: list<string>}  $scope
-     * @return array{artifact_path: string|null, encryption_key: string, upload_url: string, account: array<string, mixed>}
+     * @return array{artifact_path: string|null, encryption_key: string, upload_url: string, upload_token: string, account: array<string, mixed>}
      */
-    public function toDownloadPayload(array $scope, string $uploadUrl): array
+    public function toDownloadPayload(array $scope, string $uploadUrl, string $uploadToken): array
     {
         return [
             'artifact_path' => $this->artifact_path,
             'encryption_key' => $this->encryption_key,
             'upload_url' => $uploadUrl,
+            'upload_token' => $uploadToken,
             'account' => $scope + ['parts' => $this->parts ?? $this->requested_parts],
         ];
     }

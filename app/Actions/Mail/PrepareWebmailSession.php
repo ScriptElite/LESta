@@ -21,7 +21,11 @@ use Illuminate\Validation\ValidationException;
  */
 class PrepareWebmailSession
 {
-    public function handle(User $actor, MailAccount $mailAccount): string
+    /**
+     * @return array{url: string, field: string, token: string} where to POST the token, the form
+     *                                                          field to put it in, and the token: it is never placed in a URL
+     */
+    public function handle(User $actor, MailAccount $mailAccount): array
     {
         Gate::forUser($actor)->authorize('update', $mailAccount);
 
@@ -41,7 +45,7 @@ class PrepareWebmailSession
             ]);
         }
 
-        return DB::transaction(function () use ($actor, $mailAccount, $node): string {
+        return DB::transaction(function () use ($actor, $mailAccount, $node): array {
             $raw = Str::random(64);
 
             WebmailAccessToken::create([
@@ -59,7 +63,7 @@ class PrepareWebmailSession
                 'correlation_id' => (string) Str::uuid(),
             ]);
 
-            return "https://{$node->hostname}/?_lesta_token={$raw}";
+            return ['url' => "https://{$node->hostname}/", 'field' => '_lesta_token', 'token' => $raw];
         });
     }
 }

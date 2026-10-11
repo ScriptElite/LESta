@@ -27,7 +27,7 @@ test('a valid token returns the full address and decrypted password with no auth
     $token = mintWebmailToken($mailAccount);
 
     // Bare get(), no actingAs(): this endpoint is token-only-authenticated, never a session.
-    $response = $this->get("/internal/webmail-credentials/{$token}");
+    $response = $this->withToken($token)->postJson('/internal/webmail-credentials');
 
     $response->assertOk();
     $response->assertExactJson([
@@ -41,7 +41,7 @@ test('an expired token is rejected with 404', function () {
 
     $token = mintWebmailToken($mailAccount, ['expires_at' => now()->subSecond()]);
 
-    $this->get("/internal/webmail-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertNotFound();
 });
 
 test('an already-used token is rejected on the second redemption', function () {
@@ -49,12 +49,12 @@ test('an already-used token is rejected on the second redemption', function () {
 
     $token = mintWebmailToken($mailAccount);
 
-    $this->get("/internal/webmail-credentials/{$token}")->assertOk();
-    $this->get("/internal/webmail-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertOk();
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertNotFound();
 });
 
 test('a nonexistent token is rejected with 404', function () {
-    $this->get('/internal/webmail-credentials/does-not-exist')->assertNotFound();
+    $this->withToken('does-not-exist')->postJson('/internal/webmail-credentials')->assertNotFound();
 });
 
 test('a suspended mailbox is rejected even with a valid token', function () {
@@ -62,7 +62,7 @@ test('a suspended mailbox is rejected even with a valid token', function () {
 
     $token = mintWebmailToken($mailAccount);
 
-    $this->get("/internal/webmail-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertNotFound();
 });
 
 test('a mailbox on a suspended mail domain is rejected even with a valid token', function () {
@@ -71,5 +71,19 @@ test('a mailbox on a suspended mail domain is rejected even with a valid token',
 
     $token = mintWebmailToken($mailAccount);
 
-    $this->get("/internal/webmail-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertNotFound();
+});
+
+test('a token in the address or the body is not a credential', function () {
+    $mailAccount = MailAccount::factory()->create();
+
+    $token = mintWebmailToken($mailAccount);
+
+    $this->postJson('/internal/webmail-credentials')->assertNotFound();
+    $this->postJson('/internal/webmail-credentials', ['token' => $token])->assertNotFound();
+    $this->postJson('/internal/webmail-credentials?token='.$token)->assertNotFound();
+    $this->get('/internal/webmail-credentials/'.$token)->assertNotFound();
+
+    // None of those spent it.
+    $this->withToken($token)->postJson('/internal/webmail-credentials')->assertOk();
 });

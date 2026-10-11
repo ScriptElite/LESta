@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiPost } from '@/lib/api';
+import { submitHandoff } from '@/lib/handoff';
 import mail from '@/routes/mail';
 import type { MailAccount, MailDomain } from '@/types';
 import type { WebmailSessionResponse } from '@/types/mail';
@@ -412,16 +413,11 @@ function OpenWebmailButton({
         const webmailTab = window.open('', '_blank');
 
         try {
-            const { url } = await apiPost<WebmailSessionResponse>(
+            const handoff = await apiPost<WebmailSessionResponse>(
                 MailAccountController.openWebmail([mailDomain, account]).url,
             );
 
-            if (webmailTab) {
-                webmailTab.opener = null;
-                webmailTab.location.href = url;
-            } else {
-                window.location.href = url;
-            }
+            submitHandoff(handoff, webmailTab);
         } catch {
             webmailTab?.close();
             setError('Could not prepare a webmail session. Try again.');

@@ -9,4 +9,4 @@ use Illuminate\Support\Facades\Route;
 // node's own Roundcube pool (.install/services/webmail/vendor/lesta_autologin/lesta_autologin.php),
 // never a browser session of this application's own.
 Route::middleware(['throttle:webmail-credentials', AuthenticateWebmailToken::class])
-    ->get('internal/webmail-credentials/{token}', [WebmailCredentialController::class, 'show']);
+    ->post('internal/webmail-credentials', [WebmailCredentialController::class, 'show']);

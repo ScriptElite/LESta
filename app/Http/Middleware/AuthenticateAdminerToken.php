@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authenticates the one-time {token} route parameter against
+ * Authenticates the one-time token, sent as a bearer token in the Authorization header (never in the URL, where it would land in access logs), against
  * adminer_access_tokens.token_hash and stores the resolved TenantDatabase on the request's
  * attribute bag for AdminerCredentialController to read -- the same "resolve a credential, attach
  * the model, let the controller read it" shape AuthenticateNodeCredential already uses.
@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\Response;
  * Deliberately returns 404, not 401, on any failure (unknown token, expired, already used):
  * unlike AuthenticateNodeCredential's bearer token (a real credential presented by a trusted,
  * already-enrolled node), this token rides a public-shaped URL
- * (https://{domain}/__lesta-adminer__?token=...) a scanner could hit blind. A 401 would confirm
+ * (https://{node}/__lesta-adminer__, which the browser POSTs the token to) a scanner could hit blind. A 401 would confirm
  * "a token-shaped value was expected here"; 404 reveals nothing about why the request failed.
  *
  * Marks the token used atomically inside the same request via a single conditional UPDATE
@@ -31,7 +31,7 @@ class AuthenticateAdminerToken
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $token = (string) $request->route('token');
+        $token = (string) $request->bearerToken();
 
         if ($token === '') {
             abort(404);

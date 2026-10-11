@@ -319,7 +319,12 @@ type fakePanel struct {
 	refuse  bool
 	chunks  int
 	offsets []int64
+	// sawHeaderToken is set when a request carried the token in the Authorization header.
+	sawHeaderToken bool
 }
+
+// uploadToken is the one-time token the fake panel accepts.
+var uploadToken = strings.Repeat("ab", 32)
 
 func newFakePanel(t *testing.T) *fakePanel {
 	t.Helper()
@@ -330,7 +335,12 @@ func newFakePanel(t *testing.T) *fakePanel {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 
-		if r.Method != http.MethodPut || p.refuse {
+		// The token is sent in a header; an address with the token in its path is the older form.
+		headerOK := r.Header.Get("Authorization") == "Bearer "+uploadToken
+		pathOK := strings.HasSuffix(r.URL.Path, "/"+uploadToken)
+		p.sawHeaderToken = p.sawHeaderToken || headerOK
+
+		if r.Method != http.MethodPut || p.refuse || (!headerOK && !pathOK) {
 			http.Error(w, "refused", http.StatusForbidden)
 
 			return
@@ -361,7 +371,7 @@ func newFakePanel(t *testing.T) *fakePanel {
 }
 
 func (p *fakePanel) url() string {
-	return p.server.URL + "/agent/v1/account-backup-uploads/" + strings.Repeat("ab", 32)
+	return p.server.URL + "/agent/v1/account-backup-uploads"
 }
 
 func TestAccountBackupDownloadStreamsAPlainTarGzToTheUploadAddress(t *testing.T) {
@@ -388,9 +398,13 @@ func TestAccountBackupDownloadStreamsAPlainTarGzToTheUploadAddress(t *testing.T)
 	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
 
 	downloaded, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
-		"encryption_key": key, "artifact_path": path, "account": h.account("files", "databases"), "upload_url": panel.url(),
+		"encryption_key": key, "artifact_path": path, "account": h.account("files", "databases"), "upload_url": panel.url(), "upload_token": uploadToken,
 	}))
 	requireStatus(t, "download", downloaded, err, protocol.StatusApplied)
+
+	if !panel.sawHeaderToken {
+		t.Errorf("the token must be sent in the Authorization header")
+	}
 
 	if !panel.final || panel.chunks < 3 {
 		t.Errorf("expected several chunks and a final marker, got %d chunks final=%v", panel.chunks, panel.final)
@@ -444,7 +458,7 @@ func TestAccountBackupDownloadRefusesBadAddressesWrongKeyAndATamperedBackup(t *t
 
 	download := func(key, url string) protocol.ResultEnvelope {
 		result, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
-			"encryption_key": key, "artifact_path": path, "account": h.account("files"), "upload_url": url,
+			"encryption_key": key, "artifact_path": path, "account": h.account("files"), "upload_url": url, "upload_token": uploadToken,
 		}))
 		if err != nil {
 			t.Fatalf("Apply: %v", err)

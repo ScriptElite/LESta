@@ -2,11 +2,12 @@
 
 /**
  * LESta's own Roundcube auto-login plugin (mail.webmail.v1). A tenant reaches
- * https://<mail-hostname>/?_lesta_token=... from "Open webmail" in the panel;
- * the token is single-use and short-lived (App\Actions\Mail\PrepareWebmailSession
+ * https://<mail-hostname>/ by the panel POSTing the one-time token in the form field
+ * _lesta_token (never in the address, so it is not left in the access log, the browser
+ * history or a Referer); the token is single-use and short-lived (App\Actions\Mail\PrepareWebmailSession
  * on the control plane), redeemed here over one synchronous HTTPS call to the
- * control plane's own token-only /internal/webmail-credentials/{token}
- * endpoint.
+ * control plane's own token-only /internal/webmail-credentials endpoint (the token in
+ * an Authorization header).
  *
  * Built on Roundcube's own documented hook pattern (plugins/autologon in the
  * real 1.7.4 source, confirmed against public_html/index.php's own login
@@ -74,7 +75,7 @@ class lesta_autologin extends rcube_plugin
 
     private function token(): string
     {
-        $token = rcube_utils::get_input_string('_lesta_token', rcube_utils::INPUT_GET);
+        $token = rcube_utils::get_input_string('_lesta_token', rcube_utils::INPUT_POST);
 
         return is_string($token) && preg_match('/^[A-Za-z0-9]{1,128}$/', $token) ? $token : '';
     }
@@ -92,14 +93,16 @@ class lesta_autologin extends rcube_plugin
             return null;
         }
 
-        $url = rtrim(trim($base), '/') . '/internal/webmail-credentials/' . rawurlencode($token);
+        // The token goes in an Authorization header, never in the address.
+        $url = rtrim(trim($base), '/') . '/internal/webmail-credentials';
 
         // Default stream TLS verification is deliberately left on: the
         // control plane's certificate is trusted through the node's own
         // system CA bundle, the same path enrollment already relies on.
         $context = stream_context_create(['http' => [
-            'method' => 'GET',
-            'header' => "Accept: application/json\r\n",
+            'method' => 'POST',
+            'header' => "Accept: application/json\r\nAuthorization: Bearer " . $token . "\r\nContent-Length: 0\r\n",
+            'content' => '',
             'timeout' => 10,
             'ignore_errors' => true,
         ]]);

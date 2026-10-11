@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { useClipboard } from '@/hooks/use-clipboard';
 import { apiPost } from '@/lib/api';
+import { submitHandoff } from '@/lib/handoff';
 import tenantDatabases from '@/routes/tenant-databases';
 import type { TenantDatabase } from '@/types';
 import type { AdminerSessionResponse } from '@/types/tenant-databases';
@@ -99,16 +100,11 @@ function OpenAdminerCard({
         const adminerTab = window.open('', '_blank');
 
         try {
-            const { url } = await apiPost<AdminerSessionResponse>(
+            const handoff = await apiPost<AdminerSessionResponse>(
                 TenantDatabaseController.openAdminer(tenantDatabase).url,
             );
 
-            if (adminerTab) {
-                adminerTab.opener = null;
-                adminerTab.location.href = url;
-            } else {
-                window.location.href = url;
-            }
+            submitHandoff(handoff, adminerTab);
         } catch {
             adminerTab?.close();
             setError('Could not prepare an Adminer session. Try again.');

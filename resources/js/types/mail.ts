@@ -1,3 +1,4 @@
+import type { Handoff } from '@/lib/handoff';
 import type { ProvisioningStatus, SuspensionSource } from './domains';
 
 export type MailAccount = {
@@ -33,6 +34,4 @@ export type MailDomain = {
  * Inertia visit): the destination is the node's own mail hostname, an origin entirely outside
  * this app's own Inertia protocol.
  */
-export type WebmailSessionResponse = {
-    url: string;
-};
+export type WebmailSessionResponse = Handoff;

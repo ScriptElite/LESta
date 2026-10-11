@@ -31,7 +31,7 @@ test('a valid token returns the expected credentials with no auth required', fun
     [$token] = mintAdminerToken($tenantDatabase);
 
     // Bare get(), no actingAs(): this endpoint is token-only-authenticated, never a session.
-    $response = $this->get("/internal/adminer-credentials/{$token}");
+    $response = $this->withToken($token)->postJson('/internal/adminer-credentials');
 
     $response->assertOk();
     $response->assertExactJson([
@@ -49,7 +49,7 @@ test('an expired token is rejected with 404', function () {
 
     [$token] = mintAdminerToken($tenantDatabase, ['expires_at' => now()->subSecond()]);
 
-    $this->get("/internal/adminer-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/adminer-credentials')->assertNotFound();
 });
 
 test('an already-used token is rejected on the second redemption', function () {
@@ -58,12 +58,12 @@ test('an already-used token is rejected on the second redemption', function () {
 
     [$token] = mintAdminerToken($tenantDatabase);
 
-    $this->get("/internal/adminer-credentials/{$token}")->assertOk();
-    $this->get("/internal/adminer-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/adminer-credentials')->assertOk();
+    $this->withToken($token)->postJson('/internal/adminer-credentials')->assertNotFound();
 });
 
 test('a nonexistent token is rejected with 404', function () {
-    $this->get('/internal/adminer-credentials/does-not-exist')->assertNotFound();
+    $this->withToken('does-not-exist')->postJson('/internal/adminer-credentials')->assertNotFound();
 });
 
 test('a suspended tenant database is rejected even with a valid token', function () {
@@ -72,5 +72,20 @@ test('a suspended tenant database is rejected even with a valid token', function
 
     [$token] = mintAdminerToken($tenantDatabase);
 
-    $this->get("/internal/adminer-credentials/{$token}")->assertNotFound();
+    $this->withToken($token)->postJson('/internal/adminer-credentials')->assertNotFound();
+});
+
+test('a token in the address or the body is not a credential', function () {
+    $node = Node::factory()->create();
+    $tenantDatabase = TenantDatabase::factory()->for($node)->create();
+
+    [$token] = mintAdminerToken($tenantDatabase);
+
+    $this->postJson('/internal/adminer-credentials')->assertNotFound();
+    $this->postJson('/internal/adminer-credentials', ['token' => $token])->assertNotFound();
+    $this->postJson('/internal/adminer-credentials?token='.$token)->assertNotFound();
+    $this->get('/internal/adminer-credentials/'.$token)->assertNotFound();
+
+    // None of those spent it.
+    $this->withToken($token)->postJson('/internal/adminer-credentials')->assertOk();
 });

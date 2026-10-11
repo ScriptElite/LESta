@@ -10,4 +10,4 @@ use Illuminate\Support\Facades\Route;
 // (.install/services/adminer/vendor/adminer-lesta-login.php), never a browser session of this
 // application's own.
 Route::middleware(['throttle:adminer-credentials', AuthenticateAdminerToken::class])
-    ->get('internal/adminer-credentials/{token}', [AdminerCredentialController::class, 'show']);
+    ->post('internal/adminer-credentials', [AdminerCredentialController::class, 'show']);

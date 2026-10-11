@@ -41,6 +41,12 @@ type Payload struct {
 	// and ObjectKey and no SourceURL, from the account's own storage) and seals it
 	// as a backup of the account (see account_import.go).
 	SourceURL *string `json:"source_url,omitempty"`
+	// UploadToken and SourceToken authorize the two addresses above. They travel in an
+	// Authorization header, never in the address, so they are not written to the
+	// control plane's access logs. Absent for an address that still carries the token
+	// in its path (an operation queued by an earlier control plane).
+	UploadToken *string `json:"upload_token,omitempty"`
+	SourceToken *string `json:"source_token,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,

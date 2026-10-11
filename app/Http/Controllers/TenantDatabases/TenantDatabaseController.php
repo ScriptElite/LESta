@@ -155,9 +155,7 @@ class TenantDatabaseController extends Controller
      */
     public function openAdminer(Request $request, TenantDatabase $tenantDatabase): JsonResponse
     {
-        $url = app(PrepareAdminerSession::class)->handle($request->user(), $tenantDatabase);
-
-        return response()->json(['url' => $url]);
+        return response()->json(app(PrepareAdminerSession::class)->handle($request->user(), $tenantDatabase));
     }
 
     /**

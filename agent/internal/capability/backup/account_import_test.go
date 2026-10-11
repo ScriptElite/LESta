@@ -32,12 +32,15 @@ func plainBackupOf(t *testing.T, h *accountHarness, parts ...string) []byte {
 	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
 
 	downloaded, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
-		"encryption_key": key, "artifact_path": path, "account": h.account(parts...), "upload_url": panel.url(),
+		"encryption_key": key, "artifact_path": path, "account": h.account(parts...), "upload_url": panel.url(), "upload_token": uploadToken,
 	}))
 	requireStatus(t, "download", downloaded, err, protocol.StatusApplied)
 
 	return panel.body.Bytes()
 }
+
+// importToken is the one-time token the fake panel accepts for a file to import.
+var importToken = strings.Repeat("cd", 32)
 
 func serveImport(t *testing.T, body []byte) string {
 	t.Helper()
@@ -49,11 +52,17 @@ func serveImport(t *testing.T, body []byte) string {
 			return
 		}
 
+		if r.Header.Get("Authorization") != "Bearer "+importToken {
+			http.Error(w, "token", http.StatusNotFound)
+
+			return
+		}
+
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(server.Close)
 
-	return server.URL + "/agent/v1/account-backup-imports/" + strings.Repeat("cd", 32)
+	return server.URL + "/agent/v1/account-backup-imports"
 }
 
 func tarGz(t *testing.T, files map[string]string, order []string) []byte {
@@ -89,7 +98,7 @@ func TestAccountImportFromTheControlPlaneThenRestore(t *testing.T) {
 	resourceID := newTestUUID()
 
 	imported, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{
-		"encryption_key": key, "account": h.account("files", "databases", "mail"), "source_url": serveImport(t, plain),
+		"encryption_key": key, "account": h.account("files", "databases", "mail"), "source_url": serveImport(t, plain), "source_token": importToken,
 	}))
 	requireStatus(t, "import", imported, err, protocol.StatusApplied)
 
@@ -143,7 +152,7 @@ func TestAccountImportRefusesFilesThatAreNotThisAccountsBackup(t *testing.T) {
 		resourceID := newTestUUID()
 
 		result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{
-			"encryption_key": newTestEncryptionKey(), "account": h.account("files"), "source_url": serveImport(t, body),
+			"encryption_key": newTestEncryptionKey(), "account": h.account("files"), "source_url": serveImport(t, body), "source_token": importToken,
 		}))
 		requireStatus(t, name, result, err, protocol.StatusFailed)
 		requireErrorCode(t, name, result, "import_invalid")
@@ -198,4 +207,33 @@ func TestAccountImportFromTheAccountsOwnStorage(t *testing.T) {
 	}))
 	requireStatus(t, "missing object", missing, err, protocol.StatusFailed)
 	requireErrorCode(t, "missing object", missing, "import_fetch_failed")
+}
+
+func TestAccountDownloadAndImportStillAcceptAnAddressWithTheTokenInItsPath(t *testing.T) {
+	h := newAccountHarness(t)
+	panel := newFakePanel(t)
+	capability := backup.New(h.cfg)
+	ctx := context.Background()
+	key := newTestEncryptionKey()
+	resourceID := newTestUUID()
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{"encryption_key": key, "account": h.account("files")}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
+
+	// An operation queued by an earlier control plane: the token is the last part of the address.
+	downloaded, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
+		"encryption_key": key, "artifact_path": path, "account": h.account("files"), "upload_url": panel.url() + "/" + uploadToken,
+	}))
+	requireStatus(t, "legacy download", downloaded, err, protocol.StatusApplied)
+
+	if panel.sawHeaderToken {
+		t.Errorf("an address that carries its token needs no header")
+	}
+
+	badToken, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
+		"encryption_key": key, "artifact_path": path, "account": h.account("files"), "upload_url": panel.url(), "upload_token": "not-a-token",
+	}))
+	requireStatus(t, "bad token", badToken, err, protocol.StatusFailed)
 }

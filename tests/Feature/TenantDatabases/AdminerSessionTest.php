@@ -46,12 +46,14 @@ test('an owner opens adminer on the node\'s own hostname, never on a customer do
 
     $response->assertOk();
 
+    // The browser is handed an address and a token to POST to it: the token is never in the address.
     $url = $response->json('url');
+    $token = $response->json('token');
 
-    expect($url)->toStartWith('https://node.example.test/__lesta-adminer__?token=')
-        ->and($url)->not->toContain($customerDomain->domain);
-
-    $token = str_replace('https://node.example.test/__lesta-adminer__?token=', '', $url);
+    expect($url)->toBe('https://node.example.test/__lesta-adminer__')
+        ->and($url)->not->toContain($customerDomain->domain)
+        ->and($response->json('field'))->toBe('lesta_token')
+        ->and($token)->toHaveLength(64);
 
     expect(AdminerAccessToken::where('token_hash', hash('sha256', $token))->where('tenant_database_id', $tenantDatabase->id)->exists())->toBeTrue()
         ->and(AuditEvent::where('action', 'tenant_database.adminer_session_prepared')->where('auditable_id', $tenantDatabase->id)->exists())->toBeTrue();

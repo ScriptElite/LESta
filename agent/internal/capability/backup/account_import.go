@@ -32,7 +32,7 @@ import (
 // another account is refused, so an import cannot be used to move data between
 // accounts.
 
-var importPathPattern = regexp.MustCompile(`^/agent/v1/account-backup-imports/[0-9a-f]{64}$`)
+var importPathPattern = regexp.MustCompile(`^/agent/v1/account-backup-imports(?:/[0-9a-f]{64})?$`)
 
 const (
 	// maxImportBytes is the largest compressed file accepted (the same 4 GB as a download).
@@ -67,6 +67,14 @@ func fetchImport(ctx context.Context, cfg Config, req accountRequest, tmp io.Wri
 		httpReq, err = http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 		if err != nil {
 			return err
+		}
+
+		if req.SourceToken != "" {
+			if !bearerTokenPattern.MatchString(req.SourceToken) {
+				return errors.New("the source token is not valid")
+			}
+
+			httpReq.Header.Set("Authorization", "Bearer "+req.SourceToken)
 		}
 
 		client = cfg.importSourceClient()
@@ -349,7 +357,7 @@ func (c *BackupCapability) applyAccountImportOp(ctx context.Context, op protocol
 		return c.failed(op, "artifacts_root_unavailable", err.Error())
 	}
 
-	req := accountRequest{Verb: "import", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, Destination: payload.Destination, ObjectKey: derefString(payload.ObjectKey), SourceURL: derefString(payload.SourceURL)}
+	req := accountRequest{Verb: "import", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, Destination: payload.Destination, ObjectKey: derefString(payload.ObjectKey), SourceURL: derefString(payload.SourceURL), SourceToken: derefString(payload.SourceToken)}
 
 	resp, err := c.runAccountHelper(ctx, req)
 	if err != nil {

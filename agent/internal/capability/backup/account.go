@@ -132,6 +132,8 @@ type accountRequest struct {
 	Destination   *S3Destination `json:"destination,omitempty"`
 	ObjectKey     string         `json:"object_key,omitempty"`
 	SourceURL     string         `json:"source_url,omitempty"`
+	UploadToken   string         `json:"upload_token,omitempty"`
+	SourceToken   string         `json:"source_token,omitempty"`
 }
 
 // accountResponse is the one JSON object the helper writes.
@@ -616,7 +618,12 @@ func fileChecksum(path string) (string, error) {
 
 // ---- download -------------------------------------------------------------
 
-var uploadPathPattern = regexp.MustCompile(`^/agent/v1/account-backup-uploads/[0-9a-f]{64}$`)
+// The token is sent in a header; the older form with the token in the path is still accepted
+// for operations queued before the control plane changed.
+var (
+	uploadPathPattern  = regexp.MustCompile(`^/agent/v1/account-backup-uploads(?:/[0-9a-f]{64})?$`)
+	bearerTokenPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
 
 const (
 	// downloadChunkSize is how much of the backup one upload request carries,
@@ -635,6 +642,10 @@ type accountDownloadData struct {
 // final chunk is sent only after the whole sealed archive authenticated, so a
 // damaged or truncated backup is never offered as a complete download.
 func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, artifact string) accountResponse {
+	if req.UploadToken != "" && !bearerTokenPattern.MatchString(req.UploadToken) {
+		return accountError("invalid_upload_url", "the upload token is not valid")
+	}
+
 	target, err := url.Parse(req.UploadURL)
 	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" || target.RawQuery != "" || !uploadPathPattern.MatchString(target.Path) {
 		return accountError("invalid_upload_url", "the upload address is not a one-time backup upload address")
@@ -662,7 +673,7 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 	for {
 		n, readErr := io.ReadFull(sr, buf)
 		if n > 0 {
-			if err := uploadChunk(ctx, client, target, offset, false, buf[:n]); err != nil {
+			if err := uploadChunk(ctx, client, target, req.UploadToken, offset, false, buf[:n]); err != nil {
 				return accountError("upload_failed", err.Error())
 			}
 
@@ -678,7 +689,7 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 		}
 	}
 
-	if err := uploadChunk(ctx, client, target, offset, true, nil); err != nil {
+	if err := uploadChunk(ctx, client, target, req.UploadToken, offset, true, nil); err != nil {
 		return accountError("upload_failed", err.Error())
 	}
 
@@ -696,7 +707,7 @@ func (c Config) uploadClient() *http.Client {
 }
 
 // uploadChunk PUTs one chunk at offset, retrying a failed attempt a few times.
-func uploadChunk(ctx context.Context, client *http.Client, base *url.URL, offset int64, final bool, body []byte) error {
+func uploadChunk(ctx context.Context, client *http.Client, base *url.URL, token string, offset int64, final bool, body []byte) error {
 	target := *base
 	query := url.Values{"offset": {strconv.FormatInt(offset, 10)}}
 
@@ -715,6 +726,10 @@ func uploadChunk(ctx context.Context, client *http.Client, base *url.URL, offset
 		}
 
 		req.Header.Set("Content-Type", "application/octet-stream")
+
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 
 		resp, err := client.Do(req)
 		if err == nil {
@@ -765,7 +780,7 @@ func (c *BackupCapability) applyAccountDownloadOp(ctx context.Context, op protoc
 		return c.rejected(op, "artifact_path_outside_root", "artifact_path is not within the owned artifacts root", "artifact_path")
 	}
 
-	resp, err := c.runAccountHelper(ctx, accountRequest{Verb: "download", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, UploadURL: *payload.UploadURL})
+	resp, err := c.runAccountHelper(ctx, accountRequest{Verb: "download", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, UploadURL: *payload.UploadURL, UploadToken: derefString(payload.UploadToken)})
 	if err != nil {
 		return c.failed(op, "account_helper_failed", err.Error())
 	}

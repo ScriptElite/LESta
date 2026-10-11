@@ -1,3 +1,4 @@
+import type { Handoff } from '@/lib/handoff';
 import type { ProvisioningStatus, SuspensionSource } from './domains';
 
 export type TenantDatabase = {
@@ -15,9 +16,7 @@ export type TenantDatabase = {
  * Inertia visit): the destination is the tenant's own domain, an origin entirely outside this
  * app's own Inertia protocol.
  */
-export type AdminerSessionResponse = {
-    url: string;
-};
+export type AdminerSessionResponse = Handoff;
 
 /**
  * The one-time reveal carried by TenantDatabaseController::store()'s and rotatePassword()'s own

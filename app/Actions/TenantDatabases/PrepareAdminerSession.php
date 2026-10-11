@@ -23,7 +23,11 @@ use Illuminate\Validation\ValidationException;
  */
 class PrepareAdminerSession
 {
-    public function handle(User $actor, TenantDatabase $tenantDatabase): string
+    /**
+     * @return array{url: string, field: string, token: string} where to POST the token, the form
+     *                                                          field to put it in, and the token: it is never placed in a URL
+     */
+    public function handle(User $actor, TenantDatabase $tenantDatabase): array
     {
         Gate::forUser($actor)->authorize('update', $tenantDatabase);
 
@@ -41,7 +45,7 @@ class PrepareAdminerSession
             ]);
         }
 
-        return DB::transaction(function () use ($actor, $tenantDatabase, $node): string {
+        return DB::transaction(function () use ($actor, $tenantDatabase, $node): array {
             $raw = Str::random(64);
             $correlationId = (string) Str::uuid();
 
@@ -60,7 +64,7 @@ class PrepareAdminerSession
                 'correlation_id' => $correlationId,
             ]);
 
-            return "https://{$node->hostname}/__lesta-adminer__?token={$raw}";
+            return ['url' => "https://{$node->hostname}/__lesta-adminer__", 'field' => 'lesta_token', 'token' => $raw];
         });
     }
 }

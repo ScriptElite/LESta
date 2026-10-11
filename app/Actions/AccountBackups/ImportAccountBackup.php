@@ -51,7 +51,8 @@ class ImportAccountBackup
 
         return DB::transaction(function () use ($actor, $import, $token): AccountBackup {
             $backup = $this->create($actor, $import->account, $import->node, $import->label, [
-                'source_url' => route('agent.account-backup-imports', ['token' => $token]),
+                'source_url' => route('agent.account-backup-imports'),
+                'source_token' => $token,
             ]);
 
             $import->forceFill(['account_backup_id' => $backup->id])->save();

@@ -80,7 +80,7 @@ class PrepareAccountBackupDownload
                 $backup,
                 app(ResolvesBackupCapableNode::class)->resolveFor($backup->node),
                 ProvisioningVerb::Observe,
-                $backup->toDownloadPayload($scope, route('agent.account-backup-uploads', ['token' => $token])),
+                $backup->toDownloadPayload($scope, route('agent.account-backup-uploads'), $token),
                 $correlationId,
                 $backup->desired_state_version,
             );

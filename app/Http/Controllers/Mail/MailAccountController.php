@@ -124,8 +124,6 @@ class MailAccountController extends Controller
     {
         abort_unless($mailAccount->mail_domain_id === $mailDomain->id, 404);
 
-        $url = app(PrepareWebmailSession::class)->handle($request->user(), $mailAccount);
-
-        return response()->json(['url' => $url]);
+        return response()->json(app(PrepareWebmailSession::class)->handle($request->user(), $mailAccount));
     }
 }

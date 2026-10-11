@@ -114,7 +114,7 @@ test('an uploaded file is received in order, then handed to the node at a one-ti
 
     $backup = AccountBackup::sole();
     $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->sole();
-    $token = basename($operation->payload['source_url']);
+    $token = $operation->payload['source_token'];
     $import->refresh();
 
     expect($begin->json('max_bytes'))->toBe(AccountBackupImport::MAX_BYTES)
@@ -126,12 +126,19 @@ test('an uploaded file is received in order, then handed to the node at a one-ti
         ->and($import->size_bytes)->toBe(strlen($gz) + 6)
         ->and($operation->payload)->not->toHaveKey('destination');
 
-    $fetched = $this->get(route('agent.account-backup-imports', ['token' => $token]));
+    expect($operation->payload['source_url'])->not->toContain($token);
+
+    $fetched = $this->withToken($token)->get(route('agent.account-backup-imports'));
     $fetched->assertOk();
     expect($fetched->streamedContent())->toBe($gz.'second');
 
-    $this->get(route('agent.account-backup-imports', ['token' => str_repeat('0', 64)]))->assertNotFound();
-    $this->get(route('agent.account-backup-imports', ['token' => 'short']))->assertNotFound();
+    $this->withToken(str_repeat('0', 64))->get(route('agent.account-backup-imports'))->assertNotFound();
+    $this->withToken('short')->get(route('agent.account-backup-imports'))->assertNotFound();
+    $this->get(route('agent.account-backup-imports'))->assertNotFound();
+
+    // A token in the address is not a credential any more.
+    $this->get(route('agent.account-backup-imports').'?token='.$token)->assertNotFound();
+    $this->get(route('agent.account-backup-imports').'/'.$token)->assertNotFound();
 
     // The staged file goes as soon as the node reports, whatever the outcome.
     completeImport($operation, ProvisioningStatus::Applied, ['parts' => ['files'], 'size_bytes' => 9, 'checksum' => 'sha256:'.str_repeat('b', 64), 'artifact_path' => '/x/up.acct.enc']);
@@ -139,7 +146,7 @@ test('an uploaded file is received in order, then handed to the node at a one-ti
     expect(AccountBackupImport::count())->toBe(0)
         ->and(Storage::disk('local')->allFiles('account-backup-imports'))->toBe([]);
 
-    $this->get(route('agent.account-backup-imports', ['token' => $token]))->assertNotFound();
+    $this->withToken($token)->get(route('agent.account-backup-imports'))->assertNotFound();
 });
 
 test('a failed import keeps the reason and removes the staged file', function () {

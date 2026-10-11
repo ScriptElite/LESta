@@ -24,7 +24,9 @@
  *
  * Design, verified against the real source rather than guessed:
  *
- * - A tenant reaches this file via /__lesta-adminer__?token=... (see
+ * - A tenant reaches this file by the panel POSTing the one-time token to
+ *   /__lesta-adminer__ in the form field lesta_token, never in the address, so it is
+ *   not left in the access log, the browser history or a Referer (see
  *   agent/internal/capability/nginx's own php.conf.tmpl location block).
  *   The token is single-use and short-lived (see
  *   App\Actions\TenantDatabases\PrepareAdminerSession on the control
@@ -44,7 +46,7 @@
  *   verifyLoginToken() hook (explicitly documented: "a form on another
  *   website doesn't have it") is overridden to skip the check, only for
  *   this one synthetic submission.
- * - Only present when $_GET["token"] is actually set: every subsequent
+ * - Only present when $_POST["lesta_token"] is actually set: every subsequent
  *   request within an already-established Adminer session (including the
  *   redirect target right after the first request) carries no token at
  *   all, and must fall through to Adminer's own native, already-working
@@ -88,12 +90,15 @@ function lesta_adminer_control_plane_url(): string
  */
 function lesta_adminer_redeem_token(string $token): array
 {
-    $url = lesta_adminer_control_plane_url() . '/internal/adminer-credentials/' . rawurlencode($token);
+    // The token goes in an Authorization header, never in the address: an address is written
+    // to the control plane's access log.
+    $url = lesta_adminer_control_plane_url() . '/internal/adminer-credentials';
 
     $context = stream_context_create([
         'http' => [
-            'method' => 'GET',
-            'header' => "Accept: application/json\r\n",
+            'method' => 'POST',
+            'header' => "Accept: application/json\r\nAuthorization: Bearer " . $token . "\r\nContent-Length: 0\r\n",
+            'content' => '',
             'timeout' => 10,
             // Default stream SSL verification (verify_peer/verify_peer_name
             // both true since PHP 5.6) is deliberately left untouched: the
@@ -182,9 +187,11 @@ function adminer_object()
         }
     }
 
-    $token = $_GET['token'] ?? '';
+    // The token is only read from the body of a POST. The field is not called "token":
+    // Adminer's own CSRF field has that name and would be checked against the session.
+    $token = $_SERVER['REQUEST_METHOD'] === 'POST' && is_string($_POST['lesta_token'] ?? null) ? $_POST['lesta_token'] : '';
 
-    if ($token !== '') {
+    if ($token !== '' && preg_match('/^[A-Za-z0-9]{1,128}$/', $token) === 1) {
         $credentials = lesta_adminer_redeem_token($token);
 
         // Adminer's own auth.inc.php, once it processes $_POST["auth"]
@@ -208,7 +215,7 @@ function adminer_object()
             $_SERVER['QUERY_STRING'] = preg_replace('~(^|&)token=[^&]*&?~', '$1', $_SERVER['QUERY_STRING']);
             $_SERVER['QUERY_STRING'] = trim($_SERVER['QUERY_STRING'], '&');
         }
-        unset($_GET['token']);
+        unset($_POST['lesta_token']);
 
         $server = $credentials['host'] . ':' . $credentials['port'];
 

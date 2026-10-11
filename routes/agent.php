@@ -31,12 +31,12 @@ Route::prefix('agent/v1')->middleware([AuthenticateNodeCredential::class, 'throt
 
 // A node streams a decrypted account backup here, in chunks, for the owner to download (see
 // PrepareAccountBackupDownload). No node credential: the one-time token in the address authorizes it.
-Route::put('agent/v1/account-backup-uploads/{token}', [AgentAccountBackupUploadController::class, 'store'])
+Route::put('agent/v1/account-backup-uploads', [AgentAccountBackupUploadController::class, 'store'])
     ->middleware('throttle:600,1')
     ->name('agent.account-backup-uploads');
 
 // A node fetches an uploaded account backup here, to seal it as a backup of the account (see
 // ImportAccountBackup). No node credential: the token in the address authorizes it.
-Route::get('agent/v1/account-backup-imports/{token}', [AgentAccountBackupImportController::class, 'show'])
+Route::get('agent/v1/account-backup-imports', [AgentAccountBackupImportController::class, 'show'])
     ->middleware('throttle:60,1')
     ->name('agent.account-backup-imports');
