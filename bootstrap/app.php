@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -30,19 +31,11 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: '',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trusts X-Forwarded-* only from loopback and RFC1918 private ranges, never a public
-        // address: this app is documented (README.md, the Installation Guide) as deployed behind
-        // nginx terminating TLS on the same host or the same private network, never reached
-        // directly by a client. Without this, $request->secure() evaluates the internal
-        // nginx->php-fpm hop (plain HTTP), not the real client connection, so the "secure" cookie
-        // flag below would never actually apply even when the app is genuinely served over HTTPS.
-        $middleware->trustProxies(at: [
-            '127.0.0.1',
-            '::1',
-            '10.0.0.0/8',
-            '172.16.0.0/12',
-            '192.168.0.0/16',
-        ], headers: Request::HEADER_X_FORWARDED_FOR
+        // Which proxies are believed is set in AppServiceProvider from config('app.trusted_proxies')
+        // (TRUSTED_PROXIES): the local machine by default, where nginx terminates TLS. Without
+        // trusting that hop, $request->secure() would evaluate the internal nginx->php-fpm hop
+        // (plain HTTP), so the "secure" cookie flag below would never apply.
+        $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR
             | Request::HEADER_X_FORWARDED_HOST
             | Request::HEADER_X_FORWARDED_PORT
             | Request::HEADER_X_FORWARDED_PROTO);
@@ -50,6 +43,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         $middleware->web(append: [
+            SecurityHeaders::class,
             HandleAppearance::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

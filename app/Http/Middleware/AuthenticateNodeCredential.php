@@ -6,10 +6,14 @@ use App\Enums\NodeEnrollmentStatus;
 use App\Models\Node;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticateNodeCredential
 {
+    /** Failed credentials one address may present per minute before it is refused outright. */
+    private const int MAX_FAILURES_PER_MINUTE = 30;
+
     /**
      * Handle an incoming request.
      *
@@ -28,7 +32,18 @@ class AuthenticateNodeCredential
     {
         $token = $request->bearerToken();
 
+        // Failed attempts are counted per address before anything is looked up: the 'agent'
+        // limiter that follows this middleware is keyed by the presented token, so a caller
+        // sending a new random token each time would never reach it.
+        $failureKey = 'agent-auth-failures:'.$request->ip();
+
+        if (RateLimiter::tooManyAttempts($failureKey, self::MAX_FAILURES_PER_MINUTE)) {
+            abort(429, 'Too many failed attempts.');
+        }
+
         if ($token === null) {
+            RateLimiter::hit($failureKey, 60);
+
             abort(401, 'Missing bearer token.');
         }
 
@@ -39,6 +54,8 @@ class AuthenticateNodeCredential
             ->first();
 
         if ($node === null) {
+            RateLimiter::hit($failureKey, 60);
+
             abort(401, 'Invalid, unenrolled, or suspended node credential.');
         }
 

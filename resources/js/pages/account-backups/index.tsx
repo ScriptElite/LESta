@@ -1,6 +1,10 @@
 import { Form, Head, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import AccountBackupController from '@/actions/App/Http/Controllers/Backups/AccountBackupController';
+import AccountBackupDestinationController from '@/actions/App/Http/Controllers/Backups/AccountBackupDestinationController';
+import AccountBackupDownloadController from '@/actions/App/Http/Controllers/Backups/AccountBackupDownloadController';
+import AccountBackupImportController from '@/actions/App/Http/Controllers/Backups/AccountBackupImportController';
+import AccountBackupScheduleController from '@/actions/App/Http/Controllers/Backups/AccountBackupScheduleController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { NoAccountNotice } from '@/components/no-account-notice';
@@ -214,7 +218,7 @@ function ScheduleSection({ schedule }: { schedule: Schedule }) {
 
     return (
         <Form
-            {...AccountBackupController.updateSchedule.form()}
+            {...AccountBackupScheduleController.update.form()}
             options={{ preserveScroll: true }}
             transform={(data) => ({ ...data, frequency, parts })}
             className="space-y-3 rounded-lg border p-4"
@@ -314,7 +318,7 @@ function StorageSection({ destination }: { destination: Destination | null }) {
             </p>
 
             <Form
-                {...AccountBackupController.updateDestination.form()}
+                {...AccountBackupDestinationController.update.form()}
                 options={{ preserveScroll: true }}
                 transform={(data) => ({
                     ...data,
@@ -439,7 +443,7 @@ function StorageSection({ destination }: { destination: Destination | null }) {
 
             {destination && (
                 <Form
-                    {...AccountBackupController.destroyDestination.form()}
+                    {...AccountBackupDestinationController.destroy.form()}
                     options={{ preserveScroll: true }}
                 >
                     {({ processing }) => (
@@ -528,7 +532,7 @@ function ImportSection({
         try {
             const begin = await sendJson(
                 'POST',
-                AccountBackupController.beginUpload.url(),
+                AccountBackupImportController.begin.url(),
                 JSON.stringify({ node: nodeUuid, label: label || null }),
                 'application/json',
             );
@@ -664,7 +668,7 @@ function ImportSection({
 
             {destination && (
                 <Form
-                    {...AccountBackupController.importFromStorage.form()}
+                    {...AccountBackupImportController.fromStorage.form()}
                     options={{ preserveScroll: true }}
                     transform={(data) => ({
                         ...data,
@@ -964,7 +968,7 @@ export default function Index({
                                                         </Form>
                                                     )}
                                                 <Form
-                                                    {...AccountBackupController.prepareDownload.form(
+                                                    {...AccountBackupDownloadController.store.form(
                                                         backup.uuid,
                                                     )}
                                                     options={{

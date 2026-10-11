@@ -123,4 +123,19 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Addresses or CIDR ranges whose X-Forwarded-* headers are believed, comma separated in
+    | TRUSTED_PROXIES. The local machine by default: this app is deployed behind nginx terminating
+    | TLS on the same host. A whole private range is deliberately not trusted by default, since any
+    | machine in it could then claim any client address, which defeats the login throttle and the
+    | audit trail. A proxy on another machine is named here.
+    |
+    */
+
+    'trusted_proxies' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1,::1'))))),
+
 ];

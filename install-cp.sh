@@ -234,6 +234,10 @@ configure_env_file() {
     set_env_value APP_URL "${app_url}"
     set_env_value APP_ENV "production"
     set_env_value APP_DEBUG "false"
+    # Production defaults that .env.example (written for development) does not have: sessions
+    # encrypted at rest, and logs at warning so request data and debug detail are not kept.
+    set_env_value SESSION_ENCRYPT "true"
+    set_env_value LOG_LEVEL "warning"
     # config/provisioning.php's own default ("fake", never touches a real
     # node, always reports success) is correct for automated tests, never
     # for a real deployment -- found the hard way deploying to a real node

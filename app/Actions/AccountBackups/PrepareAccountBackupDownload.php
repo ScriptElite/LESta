@@ -39,6 +39,20 @@ class PrepareAccountBackupDownload
             return $existing;
         }
 
+        $otherInProgress = AccountBackupDownload::query()
+            ->whereIn('status', ['pending', 'ready'])
+            ->where('expires_at', '>', now())
+            ->whereHas('backup', fn ($query) => $query->where('account_id', $backup->account_id)->where('id', '!=', $backup->id))
+            ->exists();
+
+        if ($otherInProgress) {
+            throw ValidationException::withMessages(['backup' => __('Another download is being prepared or is waiting to be fetched. Download or wait for it to expire first.')]);
+        }
+
+        if (! app(ChecksStagingSpace::class)->hasRoomFor((int) ($backup->size_bytes ?? 0) * 2)) {
+            throw ValidationException::withMessages(['backup' => __('The server has no room to prepare a download right now. Try again later.')]);
+        }
+
         return DB::transaction(function () use ($actor, $backup): AccountBackupDownload {
             $token = bin2hex(random_bytes(32));
 

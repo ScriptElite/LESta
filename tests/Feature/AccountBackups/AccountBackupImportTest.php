@@ -1,11 +1,13 @@
 <?php
 
+use App\Actions\AccountBackups\ChecksStagingSpace;
 use App\Actions\Provisioning\CompletesProvisioningOperation;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Models\Account;
 use App\Models\AccountBackup;
 use App\Models\AccountBackupDestination;
+use App\Models\AccountBackupDownload;
 use App\Models\AccountBackupImport;
 use App\Models\AccountNodeIdentity;
 use App\Models\MailDomain;
@@ -211,4 +213,51 @@ test('deleting an imported backup and pruning remove staged files', function () 
 
     expect(AccountBackupImport::count())->toBe(0)
         ->and(Storage::disk('local')->allFiles('account-backup-imports'))->toBe([]);
+});
+
+test('an account can have one upload in progress at a time', function () {
+    [, $node, $owner] = accountForImport();
+
+    $this->actingAs($owner)->postJson(route('account-backups.import.begin'), ['node' => $node->uuid])->assertOk();
+
+    $this->postJson(route('account-backups.import.begin'), ['node' => $node->uuid])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('backup');
+
+    expect(AccountBackupImport::count())->toBe(1);
+
+    // Once it has expired a new one may start.
+    AccountBackupImport::query()->update(['expires_at' => now()->subMinute()]);
+
+    $this->postJson(route('account-backups.import.begin'), ['node' => $node->uuid])->assertOk();
+});
+
+test('an upload or a download is refused when the disk has no room', function () {
+    [$account, $node, $owner] = accountForImport();
+    $backup = AccountBackup::factory()->completed()->for($account)->for($node)->create(['size_bytes' => 1000]);
+
+    $this->mock(ChecksStagingSpace::class, fn ($mock) => $mock->shouldReceive('hasRoomFor')->andReturnFalse());
+
+    $this->actingAs($owner)->postJson(route('account-backups.import.begin'), ['node' => $node->uuid])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('backup');
+
+    $this->post(route('account-backups.prepare-download', $backup))->assertSessionHasErrors('backup');
+
+    expect(AccountBackupImport::count())->toBe(0)
+        ->and($backup->downloads()->count())->toBe(0);
+});
+
+test('only one download per account is prepared at a time', function () {
+    [$account, $node, $owner] = accountForImport();
+    $first = AccountBackup::factory()->completed()->for($account)->for($node)->create();
+    $second = AccountBackup::factory()->completed()->for($account)->for($node)->create();
+
+    $this->actingAs($owner)->post(route('account-backups.prepare-download', $first))->assertSessionHasNoErrors();
+    $this->post(route('account-backups.prepare-download', $second))->assertSessionHasErrors('backup');
+
+    // The same backup asked again reuses its download.
+    $this->post(route('account-backups.prepare-download', $first))->assertSessionHasNoErrors();
+
+    expect(AccountBackupDownload::count())->toBe(1);
 });

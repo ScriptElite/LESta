@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/mikho/LESta/agent/internal/fsid"
 )
 
 // resourceIDPattern is a strict UUID shape, mirroring cron's own
@@ -352,6 +354,30 @@ func dispatch(cfg Config, req applyRequest) applyResponse {
 	}
 }
 
+// dispatchAsAccount runs dispatch with the account's own filesystem identity. The path checks
+// (resolveSafePath and friends) are made before the file is opened, and a tenant who controls a
+// directory in their site could swap it for a link in between. Running as the account means a link
+// to anything the account cannot touch fails with a permission error instead of being followed by
+// root, and the files created are owned by the account without a chown.
+func dispatchAsAccount(cfg Config, req applyRequest) applyResponse {
+	uid, gid, err := lookupAccountIdentity(req.AccountUsername)
+	if err != nil {
+		return errResponse("identity_lookup_failed", err.Error())
+	}
+
+	var resp applyResponse
+
+	if err := fsid.RunAs(uid, gid, func() error {
+		resp = dispatch(cfg, req)
+
+		return nil
+	}); err != nil {
+		return errResponse("identity_switch_failed", err.Error())
+	}
+
+	return resp
+}
+
 // applyPrivileged runs dispatch directly (cfg.SudoBinary empty) or, in
 // production, via this same binary's own "files-manager-apply" CLI mode
 // under sudo, the request piped over stdin and the response read back from
@@ -415,7 +441,7 @@ func Apply(cfg Config, r io.Reader, w io.Writer) int {
 		return 1
 	}
 
-	resp := dispatch(cfg, req)
+	resp := dispatchAsAccount(cfg, req)
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		fmt.Fprintln(os.Stderr, "files-manager-apply: encoding response:", err)

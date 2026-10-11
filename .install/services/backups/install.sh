@@ -402,7 +402,7 @@ SUDOERSEOF
     # /etc/sudoers.d parsing only ever sees the final name.
     mv "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" "${SUDOERS_LESTA_BACKUPS_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_BACKUPS_PATH}" "failed to activate ${SUDOERS_LESTA_BACKUPS_PATH}"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "${SUDOERS_LESTA_BACKUPS_PATH}" "sudoers rule written and validated: lesta-agent may run ${MARIADB_DUMP_BINARY_PATH}, ${MARIADB_CLIENT_BINARY_PATH} and ${AGENT_BINARY_DEST} backup-account-apply (per-account backups, one JSON request on stdin), ${AGENT_BINARY_DEST} backup-archive-mail-state and ${AGENT_BINARY_DEST} backup-restore-mail-files (whole-node mail, which the mail user owns) as root, nothing else"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "${SUDOERS_LESTA_BACKUPS_PATH}" "sudoers rule written and validated: lesta-agent may run ${MARIADB_DUMP_BINARY_PATH} and ${MARIADB_CLIENT_BINARY_PATH} only with the exact dump and restore arguments for the two known database sockets, and ${AGENT_BINARY_DEST} backup-account-apply (per-account backups, one JSON request on stdin), backup-archive-mail-state and backup-restore-mail-files (whole-node mail, which the mail user owns) as root, nothing else"
 
     checkpoint_write install_backups "${MANIFEST_DIGEST}"
     log_info "install_backups complete"
