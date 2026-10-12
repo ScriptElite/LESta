@@ -1468,10 +1468,11 @@ bootstrap_node_health() {
     # The root applier applies this capability (see lib/applier.sh): the lookup files Exim and
     # Dovecot read, the DKIM keys and the password file are written by it, and Exim's configuration
     # is checked and both services reloaded by it, not by the unprivileged daemon. Exim's checks
-    # open its log and spool and may change user, hence the paths and the two capabilities.
+    # open its log and spool and may change user, hence the paths, the two capabilities and the privileged system calls.
     applier_install_unit
     applier_allow_paths "${MAIL_SMTP_IMAP_CAPABILITY}" /etc/exim4 /etc/dovecot /var/lib/lesta /var/log/exim4 /var/spool/exim4
     applier_allow_capabilities "${MAIL_SMTP_IMAP_CAPABILITY}" CAP_SETUID CAP_SETGID
+    applier_allow_syscalls "${MAIL_SMTP_IMAP_CAPABILITY}" @privileged
     applier_start
     applier_enable_capability "${MAIL_SMTP_IMAP_CAPABILITY}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${MAIL_SMTP_IMAP_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"

@@ -10,6 +10,7 @@
 #   applier_install_unit                      once per node; idempotent
 #   applier_allow_paths <capability> <path>…  the directories that capability writes
 #   applier_allow_capabilities <capability> <CAP_…>…  any extra Linux capabilities it needs
+#   applier_allow_syscalls <capability> <@group>…  any extra system call groups it needs
 #   applier_start                             enable and (re)start the unit
 #   applier_enable_capability <capability>    the switch: the daemon now hands it to the applier
 #
@@ -113,6 +114,25 @@ applier_allow_capabilities() {
     chown root:root "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp"
     mv -f "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" "failed to write the applier capabilities drop-in for ${capability}"
+}
+
+# applier_allow_syscalls <capability> <syscall group>…
+# Adds system call groups to the applier's filter while it applies <capability> (the unit starts
+# with @system-service, which leaves out the privileged calls: setuid, setgid and the like). Exim
+# drops to its own user even for a configuration check, so mail needs @privileged.
+applier_allow_syscalls() {
+    local capability="$1"
+
+    shift
+
+    install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
+
+    printf '[Service]\nSystemCallFilter=%s\n' "$*" > "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf.tmp"
+    chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf.tmp"
+    chown root:root "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf.tmp"
+    mv -f "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf" "failed to write the applier system call drop-in for ${capability}"
 }
 
 # applier_start enables the unit and restarts it so it runs the binary and drop-ins now on disk.
