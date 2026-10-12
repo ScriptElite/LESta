@@ -21,27 +21,50 @@
 # (one drop-in each), has no network beyond what the tools it runs need, and keeps only the
 # capabilities it uses.
 
-APPLIER_UNIT_PATH="/etc/systemd/system/lesta-applier.service"
-APPLIER_DROPIN_DIR="/etc/systemd/system/lesta-applier.service.d"
 APPLIER_CAPABILITIES_PATH="/etc/lesta/applier-capabilities"
 
-applier_install_unit() {
-    cat > "${APPLIER_UNIT_PATH}.tmp" <<'UNIT'
-[Unit]
-Description=LESta privileged applier (applies node configuration for the agent daemon)
-After=local-fs.target
-Before=lesta-agent-daemon.service
+# The applier runs as one or more instances, each its own process with its own sandbox and socket
+# (see agent/cmd/lesta-agent/applier.go). The default instance applies the capabilities that write
+# configuration files; "identity" applies the one that edits the account database, whose sandbox
+# must be able to write /etc. applier_select_instance chooses which one the functions below act on.
+APPLIER_UNITS="lesta-applier lesta-applier-identity"
 
-[Service]
-Type=simple
+# applier_select_instance [name]: no name selects the default instance.
+applier_select_instance() {
+    if [ -z "${1:-}" ]; then
+        APPLIER_UNIT_NAME="lesta-applier"
+        APPLIER_EXEC_ARGS="applier"
+        APPLIER_SOCKET="/run/lesta/applier.sock"
+    else
+        APPLIER_UNIT_NAME="lesta-applier-$1"
+        APPLIER_EXEC_ARGS="applier $1"
+        APPLIER_SOCKET="/run/lesta/applier-$1.sock"
+    fi
+
+    APPLIER_UNIT_PATH="/etc/systemd/system/${APPLIER_UNIT_NAME}.service"
+    APPLIER_DROPIN_DIR="/etc/systemd/system/${APPLIER_UNIT_NAME}.service.d"
+}
+
+applier_select_instance ""
+
+applier_install_unit() {
+    {
+        printf '[Unit]\nDescription=LESta privileged applier %s (applies node configuration for the agent daemon)\n' "${APPLIER_UNIT_NAME}"
+        printf 'After=local-fs.target\nBefore=lesta-agent-daemon.service\n\n'
+        printf '[Service]\nType=simple\n'
+        cat <<'UNIT'
 # No User=: a system service runs as root by default, and an explicit User=root makes systemd drop
 # CAP_SETUID from the process even when the capability bounding set lists it, which breaks Exim
 # (it changes user even for a configuration check).
-ExecStart=/var/lib/lesta/agent/bin/lesta-agent applier
+UNIT
+        printf 'ExecStart=/var/lib/lesta/agent/bin/lesta-agent %s\n' "${APPLIER_EXEC_ARGS}"
+        cat <<'UNIT'
 Restart=on-failure
 RestartSec=2
+# The instances share /run/lesta; one stopping must not remove the other's socket.
 RuntimeDirectory=lesta
 RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 UMask=0022
 
 # Sandbox. ReadWritePaths is extended per capability by a drop-in (applier_allow_paths).
@@ -67,6 +90,7 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH 
 [Install]
 WantedBy=multi-user.target
 UNIT
+    } > "${APPLIER_UNIT_PATH}.tmp"
     chmod 0644 "${APPLIER_UNIT_PATH}.tmp"
     chown root:root "${APPLIER_UNIT_PATH}.tmp"
     mv -f "${APPLIER_UNIT_PATH}.tmp" "${APPLIER_UNIT_PATH}" \
@@ -142,16 +166,16 @@ applier_start() {
     # A failure here is a failed health check of the agent binary just installed (the applier is
     # that binary), so it rolls the binary back like a failed self-test does.
     systemctl daemon-reload || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_failed "" "systemctl daemon-reload failed"
-    systemctl enable lesta-applier >/dev/null 2>&1 || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "${APPLIER_UNIT_PATH}" "systemctl enable lesta-applier failed"
-    systemctl restart lesta-applier || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_start_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed with the agent binary just installed"
+    systemctl enable "${APPLIER_UNIT_NAME}" >/dev/null 2>&1 || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "${APPLIER_UNIT_PATH}" "systemctl enable ${APPLIER_UNIT_NAME} failed"
+    systemctl restart "${APPLIER_UNIT_NAME}" || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_start_failed "${APPLIER_UNIT_PATH}" "systemctl restart ${APPLIER_UNIT_NAME} failed with the agent binary just installed"
 
     local waited=0
 
-    while [ ! -S /run/lesta/applier.sock ]; do
+    while [ ! -S "${APPLIER_SOCKET}" ]; do
         waited=$((waited + 1))
 
         if [ "${waited}" -gt 50 ]; then
-            agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_socket_missing /run/lesta/applier.sock "the applier started but its socket did not appear within five seconds"
+            agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_socket_missing "${APPLIER_SOCKET}" "the applier started but its socket did not appear within five seconds"
         fi
 
         sleep 0.1
@@ -173,12 +197,16 @@ applier_enable_capability() {
     chown root:root "${APPLIER_CAPABILITIES_PATH}"
 }
 
-# applier_restart_if_enabled restarts the applier after a new agent binary was installed, so the
+# applier_restart_if_enabled restarts every applier instance after a new agent binary was installed, so the
 # self-test that follows runs against the new applier. A no-op where it is not installed.
 applier_restart_if_enabled() {
-    if ! systemctl is-enabled lesta-applier >/dev/null 2>&1; then
-        return 0
-    fi
+    local unit
 
-    systemctl restart lesta-applier || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_restart_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed after installing a new agent binary generation"
+    for unit in ${APPLIER_UNITS}; do
+        if ! systemctl is-enabled "${unit}" >/dev/null 2>&1; then
+            continue
+        fi
+
+        systemctl restart "${unit}" || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_restart_failed "/etc/systemd/system/${unit}.service" "systemctl restart ${unit} failed after installing a new agent binary generation"
+    done
 }

@@ -21,15 +21,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net"
 	"os"
-	"os/signal"
-	"os/user"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/mikho/LESta/agent/internal/applier"
@@ -233,7 +227,12 @@ func main() {
 	// "applier" is the root process the daemon hands privileged capabilities to over a unix
 	// socket (see internal/applier); the lesta-applier systemd unit execs it.
 	if len(os.Args) >= 2 && os.Args[1] == "applier" {
-		os.Exit(runApplier())
+		instance := ""
+		if len(os.Args) >= 3 {
+			instance = os.Args[2]
+		}
+
+		os.Exit(runApplier(instance))
 	}
 
 	if err := run(os.Stdin, os.Stdout); err != nil {
@@ -275,7 +274,9 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 	// one-shot stdin mode (run), which the installers' self-tests use, goes the same way, so a
 	// self-test proves the path the daemon really takes.
 	if appliedByApplier(op.Capability) {
-		return applier.Remote{SocketPath: applierSocketPath}.Apply(ctx, op)
+		instance, _ := applierInstanceFor(op.Capability)
+
+		return applier.Remote{SocketPath: instance.socket}.Apply(ctx, op)
 	}
 
 	return dispatchDirect(ctx, op)
@@ -1023,203 +1024,4 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 
 	return err == nil
-}
-
-const (
-	// applierSocketPath is where the root applier listens; the daemon (user lesta-agent) connects.
-	applierSocketPath = "/run/lesta/applier.sock"
-	// applierCapabilitiesPath lists, one per line, the capabilities the daemon hands to the
-	// applier instead of applying itself. Root-owned: it is the switch for moving a capability
-	// to the applier and back, and the installers write it. A capability on the list that this
-	// build does not host is ignored.
-	applierCapabilitiesPath = "/etc/lesta/applier-capabilities"
-	// applierUser is the only non-root user the applier serves.
-	applierUser = "lesta-agent"
-)
-
-// applierHosted is every capability this build can apply inside the applier. A capability joins
-// this set when it has moved behind the applier (see the privileged applier split plan).
-var applierHosted = map[string]bool{
-	dnsBind9Capability:     true,
-	webNginxCapability:     true,
-	webPhpFpmCapability:    true,
-	webApacheCapability:    true,
-	mailSmtpImapCapability: true,
-}
-
-// appliedByApplier reports whether the daemon must hand capability to the applier: this build
-// hosts it there and the root-owned list names it.
-func appliedByApplier(capability string) bool {
-	return appliedByApplierFrom(applierCapabilitiesPath, capability)
-}
-
-func appliedByApplierFrom(listPath, capability string) bool {
-	if !applierHosted[capability] {
-		return false
-	}
-
-	raw, err := os.ReadFile(listPath)
-	if err != nil {
-		return false
-	}
-
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.TrimSpace(line) == capability {
-			return true
-		}
-	}
-
-	return false
-}
-
-// dispatchHosted applies op inside the applier, as root, for a capability the applier hosts. Each
-// capability gets the production configuration it has when it runs as root, so it runs its tools
-// directly rather than through sudo.
-func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
-	var capability protocol.Capability
-
-	switch op.Capability {
-	case dnsBind9Capability:
-		capability = bind9.New(bind9AppliedConfig())
-	case webNginxCapability:
-		capability = nginx.New(nginxAppliedConfig())
-	case webPhpFpmCapability:
-		capability = phpfpm.New(phpFpmAppliedConfig())
-	case webApacheCapability:
-		capability = apache.New(apacheAppliedConfig())
-	case mailSmtpImapCapability:
-		capability = mail.New(mailAppliedConfig())
-	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
-	}
-
-	return capability.Apply(ctx, op)
-}
-
-// nginxAppliedConfig is the nginx configuration for the applier: the same paths, with no sudo and
-// no helper binary, because the applier already is root. The configuration nginx tests and loads is
-// rendered here from validated fields, so no path the daemon chooses is ever tested or loaded.
-func nginxAppliedConfig() nginx.Config {
-	cfg := nginxProductionConfig()
-	cfg.SudoBinary = ""
-	cfg.AgentBinaryPath = ""
-
-	return cfg
-}
-
-// phpFpmAppliedConfig is the php-fpm configuration for the applier: no sudo, because the applier
-// already is root. The pool files it writes are what the root php-fpm master loads, so they are
-// rendered here from validated fields and never taken from the daemon.
-func phpFpmAppliedConfig() phpfpm.Config {
-	cfg := phpFpmProductionConfig()
-	cfg.SudoBinary = ""
-
-	return cfg
-}
-
-// apacheAppliedConfig is the apache configuration for the applier: the reload runs directly and
-// the document roots are made in this process.
-func apacheAppliedConfig() apache.Config {
-	cfg := apacheProductionConfig()
-	cfg.ReloadCommand = []string{"/usr/bin/systemctl", "reload", "apache2"}
-	cfg.EnsureDocroot = func(username, resourceID string) error {
-		return nginx.EnsureDocrootPrivileged(nginxAppliedConfig(), username, resourceID)
-	}
-
-	return cfg
-}
-
-// mailAppliedConfig is the mail configuration for the applier: reloads run directly, and what Exim
-// and Dovecot must read but others must not (DKIM keys, the password file) goes to the group the
-// mail services belong to, since a file written as root would otherwise be root's alone.
-func mailAppliedConfig() mail.Config {
-	cfg := mailProductionConfig()
-	cfg.EximReloadCommand = []string{"/usr/bin/systemctl", "reload", "exim4"}
-	cfg.DovecotReloadCommand = []string{"/usr/bin/systemctl", "reload", "dovecot"}
-	cfg.SecretGroup = "lesta"
-
-	return cfg
-}
-
-// bind9AppliedConfig is the bind9 configuration for the applier: the same paths, with no sudo,
-// because the applier already is root.
-func bind9AppliedConfig() bind9.Config {
-	cfg := bind9ProductionConfig()
-	cfg.SudoBinary = ""
-
-	return cfg
-}
-
-// runApplier listens on applierSocketPath and applies the operations the daemon sends until it is
-// told to stop. It returns the process exit code.
-func runApplier() int {
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "lesta-agent applier: must run as root")
-
-		return 1
-	}
-
-	agent, err := user.Lookup(applierUser)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: looking up %s: %v\n", applierUser, err)
-
-		return 1
-	}
-
-	uid, err := strconv.ParseUint(agent.Uid, 10, 32)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: user id %q: %v\n", agent.Uid, err)
-
-		return 1
-	}
-
-	// Files the capabilities create are world-readable like the ones the daemon creates, so a
-	// capability can be moved between the two without a state file becoming unreadable.
-	syscall.Umask(0o022)
-
-	if err := os.Remove(applierSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: removing the old socket: %v\n", err)
-
-		return 1
-	}
-
-	listener, err := net.Listen("unix", applierSocketPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: listening on %s: %v\n", applierSocketPath, err)
-
-		return 1
-	}
-
-	// The socket is the daemon's alone; the peer credentials are checked on every connection too.
-	if err := os.Chmod(applierSocketPath, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: socket mode: %v\n", err)
-
-		return 1
-	}
-
-	if err := os.Chown(applierSocketPath, int(uid), -1); err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: socket owner: %v\n", err)
-
-		return 1
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	server := &applier.Server{
-		Handler:     dispatchHosted,
-		Hosted:      applierHosted,
-		AllowedUIDs: []uint32{uint32(uid)},
-		Logf: func(format string, args ...any) {
-			fmt.Fprintf(os.Stderr, format+"\n", args...)
-		},
-	}
-
-	if err := server.Serve(ctx, listener); err != nil {
-		fmt.Fprintf(os.Stderr, "lesta-agent applier: %v\n", err)
-
-		return 1
-	}
-
-	return 0
 }

@@ -64,6 +64,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/enrollment.sh"
 # shellcheck source=../../lib/daemon.sh
 . "${INSTALL_ROOT}/lib/daemon.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 
 BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
 NODE_HEALTH_MANIFEST="${INSTALL_ROOT}/services/node-health/manifest.json"
@@ -522,6 +524,28 @@ bootstrap_agent_daemon() {
 # other bootstrap_* here: re-running this installer detects the file
 # already being in place and only verifies it, never re-writing it
 # needlessly.
+# The account database is edited by the root applier, in an instance of its own. Creating an
+# account runs useradd, which rewrites /etc/passwd, /etc/shadow, /etc/group and /etc/gshadow by
+# renaming new files into /etc, so this instance's sandbox must be able to write /etc as a whole;
+# that is why it is not the instance that applies the capabilities that only write configuration
+# files (see lib/applier.sh and agent/cmd/lesta-agent/applier.go).
+bootstrap_applier_identity() {
+    log_info "bootstrap_applier_identity: installing the identity applier instance"
+
+    applier_select_instance identity
+    applier_install_unit
+    applier_allow_paths system.account-identity.v1 /etc /var/lib/lesta
+    applier_allow_capabilities system.account-identity.v1 CAP_SETUID CAP_SETGID
+    applier_allow_syscalls system.account-identity.v1 @privileged
+    applier_start
+    applier_enable_capability system.account-identity.v1
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "identity applier instance installed and started; system.account-identity.v1 is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    applier_select_instance ""
+
+    checkpoint_write bootstrap_applier_identity "${MANIFEST_DIGEST}"
+    log_info "bootstrap_applier_identity complete"
+}
+
 bootstrap_sftp_prerequisite() {
     log_info "bootstrap_sftp_prerequisite: preparing system.account-identity.v1's own real SFTP rendering targets"
 
@@ -740,6 +764,7 @@ main() {
     bootstrap_node_health
     bootstrap_agent_daemon
     bootstrap_sftp_prerequisite
+    bootstrap_applier_identity
 
     checkpoint_remove
     release_write "${RELEASE_ID}" "${MANIFEST_DIGEST}"

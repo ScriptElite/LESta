@@ -170,7 +170,7 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 
 func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
 	list := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(list, []byte("# comment\n system.account-identity.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(list, []byte("# comment\n backup.encrypted-artifacts.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,13 +179,13 @@ func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
 	}
 
 	// Listed, but this build does not host it in the applier.
-	if appliedByApplierFrom(list, systemAccountIdentityCapability) {
+	if appliedByApplierFrom(list, backupEncryptedArtifactsCapability) {
 		t.Errorf("a capability the applier does not host must stay with the daemon, even if listed")
 	}
 
 	// Hosted, but not listed.
 	other := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(other, []byte("system.account-identity.v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(other, []byte("backup.encrypted-artifacts.v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,5 +195,37 @@ func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
 
 	if appliedByApplierFrom(filepath.Join(t.TempDir(), "missing"), dnsBind9Capability) {
 		t.Errorf("no list means nothing goes to the applier")
+	}
+}
+
+func TestEachHostedCapabilityBelongsToExactlyOneInstanceWithItsOwnSocket(t *testing.T) {
+	seen := map[string]string{}
+	sockets := map[string]string{}
+
+	for _, instance := range applierInstances {
+		if other, taken := sockets[instance.socket]; taken {
+			t.Errorf("instances %q and %q share the socket %s", other, instance.name, instance.socket)
+		}
+
+		sockets[instance.socket] = instance.name
+
+		for capability := range instance.hosted {
+			if other, taken := seen[capability]; taken {
+				t.Errorf("%s is hosted by instances %q and %q", capability, other, instance.name)
+			}
+
+			seen[capability] = instance.name
+		}
+	}
+
+	// The account database is edited by its own instance, whose sandbox may write /etc; nothing that
+	// only writes configuration files may share it.
+	identityInstance, ok := applierInstanceFor(systemAccountIdentityCapability)
+	if !ok || identityInstance.name != "identity" || len(identityInstance.hosted) != 1 {
+		t.Errorf("identity must be the only capability of its own instance, got %+v", identityInstance)
+	}
+
+	if instance, ok := applierInstanceNamed("no-such-instance"); ok {
+		t.Errorf("an unknown instance name must not resolve, got %+v", instance)
 	}
 }

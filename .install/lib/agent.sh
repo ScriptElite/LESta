@@ -191,9 +191,13 @@ agent_fail_selftest_with_rollback() {
         # The root applier runs this same binary: it may have been started on the generation that
         # was just rejected, so it is restarted onto the restored one (best effort, the failure
         # below is reported either way).
-        if systemctl is-enabled lesta-applier >/dev/null 2>&1; then
-            systemctl restart lesta-applier >/dev/null 2>&1 || true
-        fi
+        local applier_unit
+
+        for applier_unit in lesta-applier lesta-applier-identity; do
+            if systemctl is-enabled "${applier_unit}" >/dev/null 2>&1; then
+                systemctl restart "${applier_unit}" >/dev/null 2>&1 || true
+            fi
+        done
 
         fail_step "${exit_code}" "${error_code}" "${path}" \
             "${message} -- rolled back to the previous working agent binary generation (${AGENT_BINARY_DEST}.previous restored over ${AGENT_BINARY_DEST}); this node remains on its prior binary version, the new generation was rejected"
