@@ -102,6 +102,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/prepare-config.sh
@@ -1014,6 +1016,14 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier applies this capability (see lib/applier.sh): the vhost files Apache's root
+    # master loads are rendered, tested and reloaded by it, not by the unprivileged daemon.
+    applier_install_unit
+    applier_allow_paths "${WEB_APACHE_CAPABILITY}" /etc/apache2 /var/lib/lesta /var/log/lesta /var/log/apache2 /var/run/apache2 /var/lock/apache2
+    applier_start
+    applier_enable_capability "${WEB_APACHE_CAPABILITY}"
+    add_change "${WEB_APACHE_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_APACHE_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_APACHE_CAPABILITY}"

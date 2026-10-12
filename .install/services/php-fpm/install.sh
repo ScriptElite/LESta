@@ -66,6 +66,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/agent.sh
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
@@ -683,6 +685,14 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier applies this capability (see lib/applier.sh): the pool files php-fpm's
+    # root master loads are rendered, tested and reloaded by it, not by the unprivileged daemon.
+    applier_install_unit
+    applier_allow_paths "${WEB_PHP_FPM_CAPABILITY}" /etc/php /var/lib/lesta
+    applier_start
+    applier_enable_capability "${WEB_PHP_FPM_CAPABILITY}"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_PHP_FPM_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_PHP_FPM_CAPABILITY}"

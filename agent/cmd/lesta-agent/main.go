@@ -1040,8 +1040,10 @@ const (
 // applierHosted is every capability this build can apply inside the applier. A capability joins
 // this set when it has moved behind the applier (see the privileged applier split plan).
 var applierHosted = map[string]bool{
-	dnsBind9Capability: true,
-	webNginxCapability: true,
+	dnsBind9Capability:  true,
+	webNginxCapability:  true,
+	webPhpFpmCapability: true,
+	webApacheCapability: true,
 }
 
 // appliedByApplier reports whether the daemon must hand capability to the applier: this build
@@ -1080,6 +1082,10 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = bind9.New(bind9AppliedConfig())
 	case webNginxCapability:
 		capability = nginx.New(nginxAppliedConfig())
+	case webPhpFpmCapability:
+		capability = phpfpm.New(phpFpmAppliedConfig())
+	case webApacheCapability:
+		capability = apache.New(apacheAppliedConfig())
 	default:
 		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
 	}
@@ -1094,6 +1100,28 @@ func nginxAppliedConfig() nginx.Config {
 	cfg := nginxProductionConfig()
 	cfg.SudoBinary = ""
 	cfg.AgentBinaryPath = ""
+
+	return cfg
+}
+
+// phpFpmAppliedConfig is the php-fpm configuration for the applier: no sudo, because the applier
+// already is root. The pool files it writes are what the root php-fpm master loads, so they are
+// rendered here from validated fields and never taken from the daemon.
+func phpFpmAppliedConfig() phpfpm.Config {
+	cfg := phpFpmProductionConfig()
+	cfg.SudoBinary = ""
+
+	return cfg
+}
+
+// apacheAppliedConfig is the apache configuration for the applier: the reload runs directly and
+// the document roots are made in this process.
+func apacheAppliedConfig() apache.Config {
+	cfg := apacheProductionConfig()
+	cfg.ReloadCommand = []string{"/usr/bin/systemctl", "reload", "apache2"}
+	cfg.EnsureDocroot = func(username, resourceID string) error {
+		return nginx.EnsureDocrootPrivileged(nginxAppliedConfig(), username, resourceID)
+	}
 
 	return cfg
 }
