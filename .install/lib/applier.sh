@@ -9,6 +9,7 @@
 #
 #   applier_install_unit                      once per node; idempotent
 #   applier_allow_paths <capability> <path>…  the directories that capability writes
+#   applier_allow_capabilities <capability> <CAP_…>…  any extra Linux capabilities it needs
 #   applier_start                             enable and (re)start the unit
 #   applier_enable_capability <capability>    the switch: the daemon now hands it to the applier
 #
@@ -84,6 +85,24 @@ applier_allow_paths() {
     chown root:root "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
     mv -f "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}.conf" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}.conf" "failed to write the applier drop-in for ${capability}"
+}
+
+# applier_allow_capabilities <capability> <linux capability>…
+# Adds Linux capabilities to what the applier keeps while it applies <capability> (the unit starts
+# with a small set). nginx -t binds the listening ports, so nginx needs CAP_NET_BIND_SERVICE.
+applier_allow_capabilities() {
+    local capability="$1"
+
+    shift
+
+    install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
+
+    printf '[Service]\nCapabilityBoundingSet=%s\n' "$*" > "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp"
+    chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp"
+    chown root:root "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp"
+    mv -f "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" "failed to write the applier capabilities drop-in for ${capability}"
 }
 
 # applier_start enables the unit and restarts it so it runs the binary and drop-ins now on disk.

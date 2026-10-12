@@ -1005,6 +1005,7 @@ bootstrap_node_health() {
     # and the account directories.
     applier_install_unit
     applier_allow_paths "${WEB_NGINX_CAPABILITY}" "${NGINX_LIVE_DIR}" /etc/lesta/nginx-auth /var/lib/lesta /var/log/lesta /var/log/nginx /var/lib/nginx
+    applier_allow_capabilities "${WEB_NGINX_CAPABILITY}" CAP_NET_BIND_SERVICE
     applier_start
     applier_enable_capability "${WEB_NGINX_CAPABILITY}"
     add_change "${WEB_NGINX_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_NGINX_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
