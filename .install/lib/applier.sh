@@ -107,9 +107,11 @@ applier_allow_capabilities() {
 
 # applier_start enables the unit and restarts it so it runs the binary and drop-ins now on disk.
 applier_start() {
-    systemctl daemon-reload || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_failed "" "systemctl daemon-reload failed"
-    systemctl enable lesta-applier >/dev/null 2>&1 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "${APPLIER_UNIT_PATH}" "systemctl enable lesta-applier failed"
-    systemctl restart lesta-applier || fail_step "${EXIT_HEALTH_FAILURE}" applier_start_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed"
+    # A failure here is a failed health check of the agent binary just installed (the applier is
+    # that binary), so it rolls the binary back like a failed self-test does.
+    systemctl daemon-reload || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_failed "" "systemctl daemon-reload failed"
+    systemctl enable lesta-applier >/dev/null 2>&1 || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "${APPLIER_UNIT_PATH}" "systemctl enable lesta-applier failed"
+    systemctl restart lesta-applier || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_start_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed with the agent binary just installed"
 
     local waited=0
 
@@ -117,7 +119,7 @@ applier_start() {
         waited=$((waited + 1))
 
         if [ "${waited}" -gt 50 ]; then
-            fail_step "${EXIT_HEALTH_FAILURE}" applier_socket_missing /run/lesta/applier.sock "the applier started but its socket did not appear within five seconds"
+            agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_socket_missing /run/lesta/applier.sock "the applier started but its socket did not appear within five seconds"
         fi
 
         sleep 0.1
@@ -146,5 +148,5 @@ applier_restart_if_enabled() {
         return 0
     fi
 
-    systemctl restart lesta-applier || fail_step "${EXIT_HEALTH_FAILURE}" applier_restart_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed after installing a new agent binary generation"
+    systemctl restart lesta-applier || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_restart_failed "${APPLIER_UNIT_PATH}" "systemctl restart lesta-applier failed after installing a new agent binary generation"
 }
