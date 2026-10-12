@@ -34,7 +34,9 @@ Before=lesta-agent-daemon.service
 
 [Service]
 Type=simple
-User=root
+# No User=: a system service runs as root by default, and an explicit User=root makes systemd drop
+# CAP_SETUID from the process even when the capability bounding set lists it, which breaks Exim
+# (it changes user even for a configuration check).
 ExecStart=/var/lib/lesta/agent/bin/lesta-agent applier
 Restart=on-failure
 RestartSec=2
