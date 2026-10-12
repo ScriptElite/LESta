@@ -80,7 +80,17 @@ applier_allow_paths() {
     install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
 
-    printf '[Service]\nReadWritePaths=%s\n' "$*" > "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
+    # Each path is prefixed with "-", which systemd reads as "ignore it if it does not exist". Without
+    # it a path that is gone (a package purged, a directory removed) stops the whole applier with
+    # 226/NAMESPACE, and with it every capability that runs there.
+    local paths=""
+    local path
+
+    for path in "$@"; do
+        paths="${paths} -${path}"
+    done
+
+    printf '[Service]\nReadWritePaths=%s\n' "${paths# }" > "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
     chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
     chown root:root "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
     mv -f "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}.conf" \
