@@ -160,6 +160,8 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 		return "", nil, fmt.Errorf("base php-fpm.conf %s has no `include=%s` line; cannot build a synthetic validation config", fpmConfigPath, liveGlob)
 	}
 
+	lines = redirectGlobalLog(lines, filepath.Join(tmpDir, "php-fpm.log"))
+
 	syntheticPath := filepath.Join(tmpDir, "php-fpm.conf")
 	if err := os.WriteFile(syntheticPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		cleanup()
@@ -168,4 +170,25 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 	}
 
 	return syntheticPath, cleanup, nil
+}
+
+// redirectGlobalLog points the synthetic configuration's global error_log at the scratch directory.
+// php-fpm -t opens the error log named in the global section, so a test run would otherwise write
+// to (and need write access to) the real log of the running service.
+func redirectGlobalLog(lines []string, logPath string) []string {
+	out := make([]string, len(lines))
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "error_log") && strings.Contains(trimmed, "=") && !strings.HasPrefix(trimmed, ";") {
+			out[i] = "error_log = " + logPath
+
+			continue
+		}
+
+		out[i] = line
+	}
+
+	return out
 }
