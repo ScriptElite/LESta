@@ -1004,7 +1004,7 @@ bootstrap_node_health() {
     # path the daemon takes. /var/lib/lesta is written for the state, the tenants' document roots
     # and the account directories.
     applier_install_unit
-    applier_allow_paths "${WEB_NGINX_CAPABILITY}" "${NGINX_LIVE_DIR}" /etc/lesta/nginx-auth /var/lib/lesta /var/log/lesta
+    applier_allow_paths "${WEB_NGINX_CAPABILITY}" "${NGINX_LIVE_DIR}" /etc/lesta/nginx-auth /var/lib/lesta /var/log/lesta /var/log/nginx /var/lib/nginx
     applier_start
     applier_enable_capability "${WEB_NGINX_CAPABILITY}"
     add_change "${WEB_NGINX_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_NGINX_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
