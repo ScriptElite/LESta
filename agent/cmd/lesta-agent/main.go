@@ -1040,10 +1040,11 @@ const (
 // applierHosted is every capability this build can apply inside the applier. A capability joins
 // this set when it has moved behind the applier (see the privileged applier split plan).
 var applierHosted = map[string]bool{
-	dnsBind9Capability:  true,
-	webNginxCapability:  true,
-	webPhpFpmCapability: true,
-	webApacheCapability: true,
+	dnsBind9Capability:     true,
+	webNginxCapability:     true,
+	webPhpFpmCapability:    true,
+	webApacheCapability:    true,
+	mailSmtpImapCapability: true,
 }
 
 // appliedByApplier reports whether the daemon must hand capability to the applier: this build
@@ -1086,6 +1087,8 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = phpfpm.New(phpFpmAppliedConfig())
 	case webApacheCapability:
 		capability = apache.New(apacheAppliedConfig())
+	case mailSmtpImapCapability:
+		capability = mail.New(mailAppliedConfig())
 	default:
 		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
 	}
@@ -1122,6 +1125,18 @@ func apacheAppliedConfig() apache.Config {
 	cfg.EnsureDocroot = func(username, resourceID string) error {
 		return nginx.EnsureDocrootPrivileged(nginxAppliedConfig(), username, resourceID)
 	}
+
+	return cfg
+}
+
+// mailAppliedConfig is the mail configuration for the applier: reloads run directly, and what Exim
+// and Dovecot must read but others must not (DKIM keys, the password file) goes to the group the
+// mail services belong to, since a file written as root would otherwise be root's alone.
+func mailAppliedConfig() mail.Config {
+	cfg := mailProductionConfig()
+	cfg.EximReloadCommand = []string{"/usr/bin/systemctl", "reload", "exim4"}
+	cfg.DovecotReloadCommand = []string{"/usr/bin/systemctl", "reload", "dovecot"}
+	cfg.SecretGroup = "lesta"
 
 	return cfg
 }

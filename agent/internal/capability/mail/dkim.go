@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -72,6 +74,10 @@ func (c *MailCapability) ensureDKIMKey(domain, selector string, enabled bool) er
 		return fmt.Errorf("creating DKIM key directory for %s: %w", domain, err)
 	}
 
+	if err := c.shareWithSecretGroup(c.dkimKeyDir(domain)); err != nil {
+		return fmt.Errorf("setting the group of the DKIM key directory for %s: %w", domain, err)
+	}
+
 	privPath := c.dkimPrivateKeyPath(domain, selector)
 
 	genCmd := exec.Command(c.cfg.opensslBinary(), "genrsa", "-out", privPath, "2048")
@@ -81,6 +87,10 @@ func (c *MailCapability) ensureDKIMKey(domain, selector string, enabled bool) er
 
 	if err := os.Chmod(privPath, 0o640); err != nil {
 		return fmt.Errorf("setting DKIM private key permissions for %s/%s: %w", domain, selector, err)
+	}
+
+	if err := c.shareWithSecretGroup(privPath); err != nil {
+		return fmt.Errorf("setting the group of the DKIM private key for %s/%s: %w", domain, selector, err)
 	}
 
 	pubPath := c.dkimPublicKeyPath(domain, selector)
@@ -198,4 +208,24 @@ func (c *MailCapability) dkimPublicKeyBase64(domain, selector string) (string, e
 	}
 
 	return b.String(), nil
+}
+
+// shareWithSecretGroup gives path to Config.SecretGroup, so the mail services (members of it) can
+// read what this process, running as root, wrote. A no-op when no group is configured.
+func (c *MailCapability) shareWithSecretGroup(path string) error {
+	if c.cfg.SecretGroup == "" {
+		return nil
+	}
+
+	group, err := user.LookupGroup(c.cfg.SecretGroup)
+	if err != nil {
+		return err
+	}
+
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return err
+	}
+
+	return os.Chown(path, -1, gid)
 }

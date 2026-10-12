@@ -18,23 +18,25 @@ const stagingSuffix = ".staging"
 type aggregateFile struct {
 	finalPath string
 	content   string
+	// secret marks a file holding credentials: owner and group only, never world-readable.
+	secret bool
 }
 
 func (c *MailCapability) aggregateFiles(data renderedData) []aggregateFile {
 	return []aggregateFile{
-		{c.cfg.EximDataDir + "/domains.list", data.domains},
-		{c.cfg.EximDataDir + "/accounts.list", data.accounts},
-		{c.cfg.EximDataDir + "/antivirus.list", data.antivirus},
-		{c.cfg.EximDataDir + "/antispam.list", data.antispam},
-		{c.cfg.EximDataDir + "/dkim_keys.list", data.dkimKeys},
-		{c.cfg.EximDataDir + "/dkim_selector.list", data.dkimSelectors},
-		{c.cfg.EximDataDir + "/catchall.list", data.catchall},
-		{c.cfg.EximDataDir + "/lists.list", data.lists},
-		{c.cfg.EximDataDir + "/list_owners.list", data.listOwners},
-		{c.cfg.EximDataDir + "/list_posters.list", data.listPosters},
-		{c.cfg.EximDataDir + "/list_prefix.list", data.listPrefixes},
-		{c.cfg.EximDataDir + "/list_replyto.list", data.listReplyTo},
-		{c.cfg.DovecotPasswdPath, data.dovecotPasswd},
+		{c.cfg.EximDataDir + "/domains.list", data.domains, false},
+		{c.cfg.EximDataDir + "/accounts.list", data.accounts, false},
+		{c.cfg.EximDataDir + "/antivirus.list", data.antivirus, false},
+		{c.cfg.EximDataDir + "/antispam.list", data.antispam, false},
+		{c.cfg.EximDataDir + "/dkim_keys.list", data.dkimKeys, false},
+		{c.cfg.EximDataDir + "/dkim_selector.list", data.dkimSelectors, false},
+		{c.cfg.EximDataDir + "/catchall.list", data.catchall, false},
+		{c.cfg.EximDataDir + "/lists.list", data.lists, false},
+		{c.cfg.EximDataDir + "/list_owners.list", data.listOwners, false},
+		{c.cfg.EximDataDir + "/list_posters.list", data.listPosters, false},
+		{c.cfg.EximDataDir + "/list_prefix.list", data.listPrefixes, false},
+		{c.cfg.EximDataDir + "/list_replyto.list", data.listReplyTo, false},
+		{c.cfg.DovecotPasswdPath, data.dovecotPasswd, true},
 	}
 }
 
@@ -54,8 +56,24 @@ func (c *MailCapability) aggregateFiles(data renderedData) []aggregateFile {
 // copy of the static config's own lookups at the staging paths.
 func (c *MailCapability) writeStaging(files []aggregateFile) error {
 	for _, f := range files {
-		if err := os.WriteFile(f.finalPath+stagingSuffix, []byte(f.content), 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if f.secret {
+			mode = 0o640
+		}
+
+		if err := os.WriteFile(f.finalPath+stagingSuffix, []byte(f.content), mode); err != nil {
 			return fmt.Errorf("writing staged data file %s: %w", f.finalPath, err)
+		}
+
+		// WriteFile only applies the mode to a new file; a staging file left by an earlier run keeps its own.
+		if err := os.Chmod(f.finalPath+stagingSuffix, mode); err != nil {
+			return fmt.Errorf("setting the mode of staged data file %s: %w", f.finalPath, err)
+		}
+
+		if f.secret {
+			if err := c.shareWithSecretGroup(f.finalPath + stagingSuffix); err != nil {
+				return fmt.Errorf("setting the group of staged data file %s: %w", f.finalPath, err)
+			}
 		}
 	}
 

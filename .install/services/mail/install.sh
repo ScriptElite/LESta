@@ -111,6 +111,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/prepare-config.sh
 . "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -1462,6 +1464,17 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier applies this capability (see lib/applier.sh): the lookup files Exim and
+    # Dovecot read, the DKIM keys and the password file are written by it, and Exim's configuration
+    # is checked and both services reloaded by it, not by the unprivileged daemon. Exim's checks
+    # open its log and spool and may change user, hence the paths and the two capabilities.
+    applier_install_unit
+    applier_allow_paths "${MAIL_SMTP_IMAP_CAPABILITY}" /etc/exim4 /etc/dovecot /var/lib/lesta /var/log/exim4 /var/spool/exim4
+    applier_allow_capabilities "${MAIL_SMTP_IMAP_CAPABILITY}" CAP_SETUID CAP_SETGID
+    applier_start
+    applier_enable_capability "${MAIL_SMTP_IMAP_CAPABILITY}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${MAIL_SMTP_IMAP_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${MAIL_SMTP_IMAP_CAPABILITY}"

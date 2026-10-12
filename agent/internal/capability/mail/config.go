@@ -21,6 +21,13 @@ package mail
 // for why this is a full-file prerequisite, not an include-line one like
 // nginx.conf's).
 type Config struct {
+	// SecretGroup, when set, is the group that owns what Exim and Dovecot must read but others
+	// must not: the DKIM private keys and their directory, and the Dovecot password file. It is
+	// set where this capability runs as root (the applier), whose files would otherwise belong to
+	// root and be unreadable to the mail services; they are members of this group. Empty keeps
+	// the owner and group the writing process has.
+	SecretGroup string
+
 	// EximStaticConfPath is the real Exim main config file
 	// (/etc/exim4/exim4.conf in production): a fixed, pre-existing
 	// prerequisite this capability only ever reads, never writes. It must
