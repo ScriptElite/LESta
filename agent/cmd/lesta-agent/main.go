@@ -1041,6 +1041,7 @@ const (
 // this set when it has moved behind the applier (see the privileged applier split plan).
 var applierHosted = map[string]bool{
 	dnsBind9Capability: true,
+	webNginxCapability: true,
 }
 
 // appliedByApplier reports whether the daemon must hand capability to the applier: this build
@@ -1077,11 +1078,24 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 	switch op.Capability {
 	case dnsBind9Capability:
 		capability = bind9.New(bind9AppliedConfig())
+	case webNginxCapability:
+		capability = nginx.New(nginxAppliedConfig())
 	default:
 		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
 	}
 
 	return capability.Apply(ctx, op)
+}
+
+// nginxAppliedConfig is the nginx configuration for the applier: the same paths, with no sudo and
+// no helper binary, because the applier already is root. The configuration nginx tests and loads is
+// rendered here from validated fields, so no path the daemon chooses is ever tested or loaded.
+func nginxAppliedConfig() nginx.Config {
+	cfg := nginxProductionConfig()
+	cfg.SudoBinary = ""
+	cfg.AgentBinaryPath = ""
+
+	return cfg
 }
 
 // bind9AppliedConfig is the bind9 configuration for the applier: the same paths, with no sudo,

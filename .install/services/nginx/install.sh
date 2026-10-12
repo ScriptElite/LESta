@@ -70,6 +70,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/prepare-config.sh
 . "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -995,6 +997,17 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier applies this capability (see lib/applier.sh): it renders the fragments,
+    # tests the whole configuration and reloads nginx, so none of that is done by, or on a path
+    # chosen by, the unprivileged daemon. Started before the self-test so the self-test takes the
+    # path the daemon takes. /var/lib/lesta is written for the state, the tenants' document roots
+    # and the account directories.
+    applier_install_unit
+    applier_allow_paths "${WEB_NGINX_CAPABILITY}" "${NGINX_LIVE_DIR}" /etc/lesta/nginx-auth /var/lib/lesta /var/log/lesta
+    applier_start
+    applier_enable_capability "${WEB_NGINX_CAPABILITY}"
+    add_change "${WEB_NGINX_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_NGINX_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_NGINX_CAPABILITY}"
